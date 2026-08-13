@@ -258,9 +258,9 @@ CClientMrtSet* CClientRenderElementManager::CreateMrtSet(CClientRenderTarget* co
 
 CClientSceneView* CClientRenderElementManager::CreateSceneView(uint uiSizeX, uint uiSizeY, _D3DFORMAT colorFormat, _D3DFORMAT depthFormat)
 {
-    if (!m_SceneViews.empty())
+    if (m_SceneViews.size() >= MAX_SCENE_VIEWS_PER_FRAME)
     {
-        WriteDebugEvent("CreateSceneView - Stage 1 permits one scene view at a time");
+        WriteDebugEvent(SString("CreateSceneView - scene view limit reached (%d)", MAX_SCENE_VIEWS_PER_FRAME));
         return nullptr;
     }
 
@@ -284,10 +284,15 @@ CClientSceneView* CClientRenderElementManager::CreateSceneView(uint uiSizeX, uin
 
 bool CClientRenderElementManager::RenderRequestedSceneView()
 {
-    // Stage 1 deliberately permits one world render per frame. Consume the flag before entering GTA so the
-    // nested sky hook sees an empty queue and cannot recursively render this view.
+    // Consume requests before entering each native world pass. Lua cannot run from this loop, and the
+    // multiplayer recursion guard rejects any accidental nested render. The hard capability limit bounds
+    // both scene count and worst-case world renders per frame.
+    uint uiRenderedViews = 0;
+    bool bAnyRendered = false;
     for (CClientSceneView* pSceneView : m_SceneViews)
     {
+        if (uiRenderedViews >= MAX_SCENE_VIEWS_PER_FRAME)
+            break;
         if (!pSceneView->ConsumeRenderRequest())
             continue;
 
@@ -300,9 +305,10 @@ bool CClientRenderElementManager::RenderRequestedSceneView()
             m_pRenderItemManager->EndRenderPass();
         }
         pSceneView->SetLastRenderSucceeded(bRendered);
-        return bRendered;
+        bAnyRendered |= bRendered;
+        ++uiRenderedViews;
     }
-    return false;
+    return bAnyRendered;
 }
 
 ////////////////////////////////////////////////////////////////

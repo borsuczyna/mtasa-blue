@@ -180,6 +180,10 @@ struct SDxCapabilities
     std::vector<SFormatCapability> renderTargetFormats;
 };
 
+// Stage-2 scheduler limit. Keep one shared value for capability reporting, element creation and frame
+// execution so scripts cannot create work the native scheduler would leave queued indefinitely.
+constexpr int MAX_SCENE_VIEWS_PER_FRAME = 2;
+
 // A Lua-safe snapshot of D3DX effect metadata. It intentionally contains only
 // copied strings/numbers, never D3DX handles or device pointers, so diagnostics
 // cannot be used to mutate renderer state outside the normal shader API.

@@ -34,7 +34,7 @@ Debug Win32 compilation succeeds. The `dx9_foundation_test` resource passed in-g
 
 ## Stage 2 — Multiple scheduled scene views
 
-- [ ] Raise scene-view cap + update modes (pending)
+- [ ] Raise scene-view cap + update modes (in-progress — the first bounded scheduler raises the shared create/render/capability limit to two and drains both requested views sequentially at the existing safe pre-`ConstructRenderList` point. Debug Win32 `Client Core` and `Client Deathmatch` builds pass, and in-game testing confirms two distinct cameras render correctly without cross-view or primary-frame contamination. Update modes, priorities and larger budgets remain pending.)
 - [ ] Per-view GPU-time accounting (`CGpuQueryManager`) (pending)
 - [ ] Budget-exceeded rejection (pending)
 - [ ] Isolated per-SceneView world-material shader assignments that ignore primary/other-view shader maps (planned)

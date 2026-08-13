@@ -1418,9 +1418,10 @@ void CRenderItemManager::GetDxCapabilities(SDxCapabilities& outCapabilities)
     outCapabilities.bCubemapRenderTargetSupported = (caps.TextureCaps & D3DPTEXTURECAPS_CUBEMAP) != 0;
     outCapabilities.iMaxCubemapEdgeLength = outCapabilities.bCubemapRenderTargetSupported ? (int)caps.MaxTextureWidth : 0;
 
-    // Fixed limits for the current implementation stage. Raised in step with the
-    // scheduling/budget work that makes a higher limit actually safe.
-    outCapabilities.iMaxSceneViewsPerFrame = 1;
+    // Keep the first multi-view scheduler deliberately small. Two views are enough to prove that GTA's
+    // visibility queues and camera state are rebuilt/restored between passes without exposing an
+    // unbounded extra-world-render cost to resources.
+    outCapabilities.iMaxSceneViewsPerFrame = MAX_SCENE_VIEWS_PER_FRAME;
     outCapabilities.iMaxRenderPassNestingDepth = 4;
 
     // Reuse the readable-depth-format discovery already performed once at device
