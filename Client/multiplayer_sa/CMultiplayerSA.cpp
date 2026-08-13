@@ -81,6 +81,13 @@ DWORD RETURN_CollisionStreamRead = 0x41B1D6;
 #define FUNC_ConstructRenderList       0x5556E0
 #define VAR_MirrorsRenderingReflection 0xC7C728
 
+// The native per-frame sequence calls RenderScene() (FUNC_Render3DStuff above) then, still inside the same
+// RwCameraBeginUpdate/EndUpdate bracket, a second and entirely distinct function that draws particles,
+// coronas, road-light glow (CPointLights::RenderFogEffect), skidmarks, ropes, glass, moving-things and
+// search lights - none of which RenderScene itself draws. Omitting this call is why a secondary pass built
+// only from ConstructRenderList+RenderScene showed world geometry and peds but no particles or road lights.
+#define FUNC_RenderEffects 0x53E170
+
 // TheCamera (CCameraSAInterface), a fixed global instance - matches CLASS_CCamera in game_sa/CGameSA.h.
 // Needed directly (not via the CCamera SDK interface, which has no accessor for it) because RenderScene
 // draws through the RenderWare camera object this points at, not through whatever D3D9 render target
@@ -2865,6 +2872,9 @@ bool CMultiplayerSA::RenderSecondaryScene()
         // whatever target is bound next (see ResetWeaponPedsForPC's comment above).
         reinterpret_cast<void(__cdecl*)()>(FUNC_CVisibilityPluginsRenderWeaponPedsForPC)();
         ResetWeaponPedsForPC();
+
+        // Particles, coronas and road-light glow - see FUNC_RenderEffects' comment above.
+        reinterpret_cast<void(__cdecl*)()>(FUNC_RenderEffects)();
 
         RwCameraEndUpdate(pRwCamera);
         bRendered = true;
