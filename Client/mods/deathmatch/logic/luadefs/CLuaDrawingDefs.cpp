@@ -48,6 +48,11 @@ void CLuaDrawingDefs::LoadFunctions()
         {"dxCreateRenderTarget", DxCreateRenderTarget},
         {"dxCreateDepthStencilTarget", DxCreateDepthStencilTarget},
         {"dxCreateMrtSet", DxCreateMrtSet},
+        {"dxCreateSceneView", DxCreateSceneView},
+        {"dxSetSceneViewCamera", DxSetSceneViewCamera},
+        {"dxRequestSceneViewRender", DxRequestSceneViewRender},
+        {"dxGetSceneViewTexture", DxGetSceneViewTexture},
+        {"dxGetSceneViewInfo", DxGetSceneViewInfo},
         {"dxCreateScreenSource", DxCreateScreenSource},
         {"dxGetMaterialSize", DxGetMaterialSize},
         {"dxSetShaderValue", DxSetShaderValue},
@@ -89,6 +94,7 @@ void CLuaDrawingDefs::AddClass(lua_State* luaVM)
     AddDxRenderTargetClass(luaVM);
     AddDxDepthStencilTargetClass(luaVM);
     AddDxMrtSetClass(luaVM);
+    AddDxSceneViewClass(luaVM);
 }
 
 void CLuaDrawingDefs::AddDxMaterialClass(lua_State* luaVM)
@@ -183,6 +189,17 @@ void CLuaDrawingDefs::AddDxMrtSetClass(lua_State* luaVM)
     lua_classfunction(luaVM, "create", "dxCreateMrtSet");
 
     lua_registerclass(luaVM, "DxMrtSet", "Element");
+}
+
+void CLuaDrawingDefs::AddDxSceneViewClass(lua_State* luaVM)
+{
+    lua_newclass(luaVM);
+    lua_classfunction(luaVM, "create", "dxCreateSceneView");
+    lua_classfunction(luaVM, "setCamera", "dxSetSceneViewCamera");
+    lua_classfunction(luaVM, "requestRender", "dxRequestSceneViewRender");
+    lua_classfunction(luaVM, "getTexture", "dxGetSceneViewTexture");
+    lua_classfunction(luaVM, "getInfo", "dxGetSceneViewInfo");
+    lua_registerclass(luaVM, "DxSceneView", "DxRenderTarget");
 }
 
 int CLuaDrawingDefs::DxDrawLine(lua_State* luaVM)
@@ -1206,12 +1223,15 @@ namespace
         for (size_t i = 0; i < diagnostics.parameters.size(); ++i)
         {
             const auto& parameter = diagnostics.parameters[i];
-            lua_createtable(luaVM, 0, 8);
+            lua_createtable(luaVM, 0, 9);
             lua_pushstring(luaVM, "name");
             lua_pushstring(luaVM, parameter.strName);
             lua_settable(luaVM, -3);
             lua_pushstring(luaVM, "semantic");
             lua_pushstring(luaVM, parameter.strSemantic);
+            lua_settable(luaVM, -3);
+            lua_pushstring(luaVM, "automaticSemantic");
+            lua_pushstring(luaVM, parameter.strAutomaticSemantic);
             lua_settable(luaVM, -3);
             lua_pushstring(luaVM, "class");
             lua_pushstring(luaVM, parameter.strClass);
@@ -1381,7 +1401,7 @@ int CLuaDrawingDefs::DxGetRenderStatistics(lua_State* luaVM)
     SRenderStatistics statistics;
     g_pCore->GetGraphics()->GetRenderItemManager()->GetRenderStatistics(statistics);
 
-    lua_createtable(luaVM, 0, 14);
+    lua_createtable(luaVM, 0, 15);
 #define PUSH_RENDER_STAT(Name, Value) \
     lua_pushstring(luaVM, Name); \
     lua_pushnumber(luaVM, Value); \
@@ -1396,6 +1416,7 @@ int CLuaDrawingDefs::DxGetRenderStatistics(lua_State* luaVM)
     PUSH_RENDER_STAT("depthTargets", statistics.uiDepthTargets);
     PUSH_RENDER_STAT("mrtSets", statistics.uiMrtSets);
     PUSH_RENDER_STAT("screenSources", statistics.uiScreenSources);
+    PUSH_RENDER_STAT("sceneViews", g_pClientGame->GetManager()->GetRenderElementManager()->GetSceneViewCount());
     PUSH_RENDER_STAT("textureMemoryKB", statistics.iTextureMemoryKB);
     PUSH_RENDER_STAT("renderTargetMemoryKB", statistics.iRenderTargetMemoryKB);
     PUSH_RENDER_STAT("fontMemoryKB", statistics.iFontMemoryKB);
@@ -1560,6 +1581,145 @@ int CLuaDrawingDefs::DxCreateMrtSet(lua_State* luaVM)
         m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
 
     // error: bad arguments, dimension mismatch, or slot count exceeds this GPU's limit (see debug log)
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxCreateSceneView(lua_State* luaVM)
+{
+    CVector2D  size;
+    _D3DFORMAT colorFormat = (_D3DFORMAT)D3DFMT_A8R8G8B8;
+    SString    depthFormatName = "d24s8";
+
+    CScriptArgReader argStream(luaVM);
+    argStream.ReadVector2D(size);
+    argStream.ReadEnumString(colorFormat, (_D3DFORMAT)D3DFMT_A8R8G8B8);
+    argStream.ReadString(depthFormatName, "d24s8");
+
+    D3DFORMAT depthFormat = D3DFMT_D24S8;
+    if (!argStream.HasErrors() && !StringToDepthStencilFormat(depthFormatName, depthFormat))
+        argStream.SetCustomError(SString("Expected valid depth-stencil format, got '%s'", depthFormatName.c_str()), "Bad argument");
+
+    if (!argStream.HasErrors())
+    {
+        CLuaMain*         pLuaMain = m_pLuaManager->GetVirtualMachine(luaVM);
+        CResource*        pResource = pLuaMain ? pLuaMain->GetResource() : nullptr;
+        CClientSceneView* pSceneView = pResource ? g_pClientGame->GetManager()->GetRenderElementManager()->CreateSceneView(
+                                                       static_cast<uint>(size.fX), static_cast<uint>(size.fY), colorFormat, (_D3DFORMAT)depthFormat)
+                                                 : nullptr;
+        if (pSceneView)
+        {
+            pSceneView->SetParent(pResource->GetResourceDynamicEntity());
+            lua_pushelement(luaVM, pSceneView);
+            return 1;
+        }
+    }
+    else
+        m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxSetSceneViewCamera(lua_State* luaVM)
+{
+    CClientSceneView* pSceneView = nullptr;
+    CVector           position;
+    CVector           target;
+    CVector           up(0.0f, 0.0f, 1.0f);
+    float             fFOV = 70.0f;
+
+    CScriptArgReader argStream(luaVM);
+    argStream.ReadUserData(pSceneView);
+    argStream.ReadVector3D(position);
+    argStream.ReadVector3D(target);
+    argStream.ReadVector3D(up, CVector(0.0f, 0.0f, 1.0f));
+    argStream.ReadNumber(fFOV, 70.0f);
+
+    CVector front = target - position;
+    if (!argStream.HasErrors() && (front.Normalize() == 0.0f || up.Normalize() == 0.0f || fabs(front.DotProduct(&up)) > 0.999f))
+        argStream.SetCustomError("camera target and up vector must define a valid orientation", "Bad argument");
+    if (!argStream.HasErrors() && (fFOV < 1.0f || fFOV > 179.0f))
+        argStream.SetCustomError("field of view must be between 1 and 179 degrees", "Bad argument");
+
+    if (!argStream.HasErrors())
+    {
+        CMatrix matrix;
+        matrix.vPos = position;
+        matrix.vFront = front;
+        matrix.vUp = up;
+        matrix.OrthoNormalize(CMatrix::AXIS_FRONT, CMatrix::AXIS_UP);
+        pSceneView->SetCamera(matrix, fFOV);
+        lua_pushboolean(luaVM, true);
+        return 1;
+    }
+
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxRequestSceneViewRender(lua_State* luaVM)
+{
+    CClientSceneView* pSceneView = nullptr;
+    CScriptArgReader  argStream(luaVM);
+    argStream.ReadUserData(pSceneView);
+    if (!argStream.HasErrors())
+    {
+        if (!pSceneView->IsCameraConfigured())
+        {
+            m_pScriptDebugging->LogCustom(luaVM, "dxRequestSceneViewRender: scene view camera has not been configured");
+            lua_pushboolean(luaVM, false);
+            return 1;
+        }
+        pSceneView->RequestRender();
+        lua_pushboolean(luaVM, true);
+        return 1;
+    }
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxGetSceneViewTexture(lua_State* luaVM)
+{
+    CClientSceneView* pSceneView = nullptr;
+    CScriptArgReader  argStream(luaVM);
+    argStream.ReadUserData(pSceneView);
+    if (!argStream.HasErrors())
+    {
+        // The scene-view element derives from DxRenderTarget, so returning the same owned element avoids
+        // introducing a second Lua wrapper with ambiguous lifetime for one D3D texture.
+        lua_pushelement(luaVM, pSceneView);
+        return 1;
+    }
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxGetSceneViewInfo(lua_State* luaVM)
+{
+    CClientSceneView* pSceneView = nullptr;
+    CScriptArgReader  argStream(luaVM);
+    argStream.ReadUserData(pSceneView);
+    if (!argStream.HasErrors())
+    {
+        CRenderTargetItem* pTarget = pSceneView->GetRenderTargetItem();
+        lua_createtable(luaVM, 0, 5);
+#define PUSH_SCENE_VIEW_FIELD(Name, PushCall) \
+    lua_pushstring(luaVM, Name); \
+    PushCall; \
+    lua_settable(luaVM, -3)
+        PUSH_SCENE_VIEW_FIELD("width", lua_pushnumber(luaVM, pTarget->m_uiSizeX));
+        PUSH_SCENE_VIEW_FIELD("height", lua_pushnumber(luaVM, pTarget->m_uiSizeY));
+        PUSH_SCENE_VIEW_FIELD("fov", lua_pushnumber(luaVM, pSceneView->GetFOV()));
+        PUSH_SCENE_VIEW_FIELD("renderRequested", lua_pushboolean(luaVM, pSceneView->IsRenderRequested()));
+        PUSH_SCENE_VIEW_FIELD("lastRenderSucceeded", lua_pushboolean(luaVM, pSceneView->DidLastRenderSucceed()));
+#undef PUSH_SCENE_VIEW_FIELD
+        return 1;
+    }
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
     lua_pushboolean(luaVM, false);
     return 1;
 }

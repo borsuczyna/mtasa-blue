@@ -521,6 +521,23 @@ bool CRenderItemManager::EndRenderPass()
     return true;
 }
 
+bool CRenderItemManager::BeginSceneViewRender(CRenderTargetItem* pTarget, CDepthStencilTargetItem* pDepthStencilTargetItem, const CMatrix& cameraMatrix,
+                                              float fFOV, bool bClear)
+{
+    CRenderTargetItem* targets[MAX_MRT_RENDER_TARGETS] = {pTarget, nullptr, nullptr, nullptr};
+    if (!BeginRenderPass(targets, 1, pDepthStencilTargetItem, bClear))
+        return false;
+
+    // Camera restoration belongs to the same scope as target/depth/viewport restoration. If applying the
+    // camera fails, closing the pass immediately leaves the primary frame untouched.
+    if (!m_RenderPassStack.back()->ApplyCamera(cameraMatrix, fFOV))
+    {
+        EndRenderPass();
+        return false;
+    }
+    return true;
+}
+
 ////////////////////////////////////////////////////////////////
 //
 // CRenderItemManager::ForceCloseAllRenderPasses

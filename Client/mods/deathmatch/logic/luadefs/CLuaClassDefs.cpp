@@ -386,6 +386,8 @@ const char* CLuaClassDefs::GetEntityClass(CClientEntity* pEntity)
             return "DxDepthStencilTarget";
         case CCLIENTMRTSET:
             return "DxMrtSet";
+        case CCLIENTSCENEVIEW:
+            return "DxSceneView";
         case CCLIENTBROWSER:
             return "Browser";
     }

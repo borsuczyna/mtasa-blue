@@ -38,6 +38,7 @@ class CD3DDUMMY;
 class CEffectCloner;
 class CPixels;
 class CClientEntityBase;
+class CMatrix;
 struct SShaderItemLayers;
 typedef CShaderItem CSHADERDUMMY;
 enum eAspectRatio;
@@ -195,6 +196,7 @@ struct SShaderDiagnostics
     {
         SString strName;
         SString strSemantic;
+        SString strAutomaticSemantic;
         SString strClass;
         SString strType;
         uint    uiRows = 0;
@@ -266,6 +268,8 @@ public:
     virtual CScreenSourceItem*       CreateScreenSource(uint uiSizeX, uint uiSizeY) = 0;
     virtual bool BeginRenderPass(CRenderTargetItem* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets, CDepthStencilTargetItem* pDepthStencilTargetItem,
                                  bool bClear) = 0;
+    virtual bool BeginSceneViewRender(CRenderTargetItem* pTarget, CDepthStencilTargetItem* pDepthStencilTargetItem, const CMatrix& cameraMatrix, float fFOV,
+                                      bool bClear) = 0;
     virtual bool EndRenderPass() = 0;
     virtual uint GetRenderPassDepth() = 0;
     virtual void ForceCloseAllRenderPasses() = 0;

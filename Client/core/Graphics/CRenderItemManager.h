@@ -40,6 +40,8 @@ public:
     virtual CScreenSourceItem*       CreateScreenSource(uint uiSizeX, uint uiSizeY);
     virtual bool BeginRenderPass(CRenderTargetItem* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets, CDepthStencilTargetItem* pDepthStencilTargetItem,
                                  bool bClear);
+    virtual bool BeginSceneViewRender(CRenderTargetItem* pTarget, CDepthStencilTargetItem* pDepthStencilTargetItem, const CMatrix& cameraMatrix, float fFOV,
+                                      bool bClear);
     virtual bool EndRenderPass();
     virtual uint GetRenderPassDepth() { return (uint)m_RenderPassStack.size(); }
     virtual void ForceCloseAllRenderPasses();

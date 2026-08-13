@@ -343,6 +343,20 @@ void CCameraSA::SetMatrix(CMatrix* matrix)
     }
 }
 
+void CCameraSA::CopyCameraMatrixToRWCam(bool bUpdateMatrix)
+{
+    CCameraSAInterface* pInterface = GetInterface();
+    if (pInterface)
+        reinterpret_cast<void(__thiscall*)(CCameraSAInterface*, bool)>(0x50AFA0)(pInterface, bUpdateMatrix);
+}
+
+void CCameraSA::CalculateDerivedValues(bool bForMirror, bool bOriented)
+{
+    CCameraSAInterface* pInterface = GetInterface();
+    if (pInterface)
+        reinterpret_cast<void(__thiscall*)(CCameraSAInterface*, bool, bool)>(0x5150E0)(pInterface, bForMirror, bOriented);
+}
+
 void CCameraSA::Find3rdPersonCamTargetVector(float fDistance, CVector* vecGunMuzzle, CVector* vecSource, CVector* vecTarget)
 {
     if (!vecGunMuzzle || !vecSource || !vecTarget)

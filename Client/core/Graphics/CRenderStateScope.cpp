@@ -18,13 +18,16 @@
 
 namespace
 {
-    bool IsFiniteVector(const CVector& vec) { return std::isfinite(vec.fX) && std::isfinite(vec.fY) && std::isfinite(vec.fZ); }
+    bool IsFiniteVector(const CVector& vec)
+    {
+        return std::isfinite(vec.fX) && std::isfinite(vec.fY) && std::isfinite(vec.fZ);
+    }
 
     bool IsFiniteCameraMatrix(const CMatrix& matrix)
     {
         return IsFiniteVector(matrix.vPos) && IsFiniteVector(matrix.vFront) && IsFiniteVector(matrix.vUp) && IsFiniteVector(matrix.vRight);
     }
-}            // namespace
+}  // namespace
 
 ////////////////////////////////////////////////////////////////
 //
@@ -39,6 +42,7 @@ CRenderStateScope::CRenderStateScope(IDirect3DDevice9* pDevice)
       m_iNumRenderTargetSlots(0),
       m_bHasSavedDepthStencil(false),
       m_pSavedDepthStencil(nullptr),
+      m_bHasSavedTransforms(false),
       m_bCameraApplied(false),
       m_fSavedCameraFOV(0.0f)
 {
@@ -64,6 +68,8 @@ CRenderStateScope::CRenderStateScope(IDirect3DDevice9* pDevice)
         m_pSavedDepthStencil = nullptr;
 
     m_pDevice->GetViewport(&m_SavedViewport);
+    m_bHasSavedTransforms = SUCCEEDED(m_pDevice->GetTransform(D3DTS_WORLD, &m_SavedWorld)) && SUCCEEDED(m_pDevice->GetTransform(D3DTS_VIEW, &m_SavedView)) &&
+                            SUCCEEDED(m_pDevice->GetTransform(D3DTS_PROJECTION, &m_SavedProjection));
 }
 
 ////////////////////////////////////////////////////////////////
@@ -91,6 +97,13 @@ CRenderStateScope::~CRenderStateScope()
     SAFE_RELEASE(m_pSavedDepthStencil);
 
     m_pDevice->SetViewport(&m_SavedViewport);
+
+    if (m_bHasSavedTransforms)
+    {
+        m_pDevice->SetTransform(D3DTS_WORLD, &m_SavedWorld);
+        m_pDevice->SetTransform(D3DTS_VIEW, &m_SavedView);
+        m_pDevice->SetTransform(D3DTS_PROJECTION, &m_SavedProjection);
+    }
 
     if (m_bCameraApplied)
     {
@@ -211,11 +224,17 @@ void CRenderStateScope::ApplyCameraMatrixToGame(CCamera* pCamera, CCam* pCam, co
 {
     CMatrix matNew = matrix;
     matNew.OrthoNormalize(CMatrix::AXIS_FRONT, CMatrix::AXIS_UP);
-    matNew.vRight = -matNew.vRight;            // Camera has this the other way round
+    matNew.vRight = -matNew.vRight;  // Camera has this the other way round
 
     pCamera->SetMatrix(&matNew);
     *pCam->GetUp() = matNew.vUp;
     *pCam->GetFront() = matNew.vFront;
     *pCam->GetSource() = matNew.vPos;
     pCam->SetFOV(fFOV);
+
+    // GTA's mirror path performs these exact two operations after replacing m_cameraMatrix. SetMatrix alone
+    // does not update the RenderWare camera frame or world-space frustum planes, which leaves static world
+    // sectors using the primary camera while dynamic entities partially follow the secondary CCam.
+    pCamera->CopyCameraMatrixToRWCam(true);
+    pCamera->CalculateDerivedValues(false, false);
 }

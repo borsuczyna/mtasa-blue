@@ -177,6 +177,19 @@ void CShaderItem::GetDiagnostics(SShaderDiagnostics& outDiagnostics) const
         SShaderDiagnostics::SParameter parameter;
         parameter.strName = parameterDesc.Name ? parameterDesc.Name : "";
         parameter.strSemantic = parameterDesc.Semantic ? parameterDesc.Semantic : "";
+        for (uint annotationIndex = 0; annotationIndex < parameterDesc.Annotations; ++annotationIndex)
+        {
+            D3DXHANDLE         hAnnotation = pEffect->GetAnnotation(hParameter, annotationIndex);
+            D3DXPARAMETER_DESC annotationDesc = {};
+            if (!hAnnotation || FAILED(pEffect->GetParameterDesc(hAnnotation, &annotationDesc)) || !annotationDesc.Name ||
+                !SStringX(annotationDesc.Name).CompareI("mtaSemantic"))
+                continue;
+
+            LPCSTR szValue = nullptr;
+            if (SUCCEEDED(pEffect->GetString(hAnnotation, &szValue)) && szValue)
+                parameter.strAutomaticSemantic = szValue;
+            break;
+        }
         parameter.strClass = EffectClassToString(parameterDesc.Class);
         parameter.strType = EffectTypeToString(parameterDesc.Type);
         parameter.uiRows = parameterDesc.Rows;

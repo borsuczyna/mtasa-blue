@@ -28,6 +28,7 @@ CClientRenderElementManager::CClientRenderElementManager(CClientManager* pClient
     m_uiStatsRenderTargetCount = 0;
     m_uiStatsDepthStencilTargetCount = 0;
     m_uiStatsMrtSetCount = 0;
+    m_uiStatsSceneViewCount = 0;
     m_uiStatsScreenSourceCount = 0;
     m_uiStatsWebBrowserCount = 0;
     m_uiStatsVectorGraphicCount = 0;
@@ -255,6 +256,55 @@ CClientMrtSet* CClientRenderElementManager::CreateMrtSet(CClientRenderTarget* co
     return pMrtSetElement;
 }
 
+CClientSceneView* CClientRenderElementManager::CreateSceneView(uint uiSizeX, uint uiSizeY, _D3DFORMAT colorFormat, _D3DFORMAT depthFormat)
+{
+    if (!m_SceneViews.empty())
+    {
+        WriteDebugEvent("CreateSceneView - Stage 1 permits one scene view at a time");
+        return nullptr;
+    }
+
+    CRenderTargetItem* pRenderTargetItem = m_pRenderItemManager->CreateRenderTarget(uiSizeX, uiSizeY, true, true, colorFormat);
+    if (!pRenderTargetItem)
+        return nullptr;
+
+    CDepthStencilTargetItem* pDepthStencilTargetItem = m_pRenderItemManager->CreateDepthStencilTarget(uiSizeX, uiSizeY, depthFormat, false);
+    if (!pDepthStencilTargetItem)
+    {
+        SAFE_RELEASE(pRenderTargetItem);
+        return nullptr;
+    }
+
+    CClientSceneView* pSceneView = new CClientSceneView(m_pClientManager, INVALID_ELEMENT_ID, pRenderTargetItem, pDepthStencilTargetItem);
+    MapSet(m_ItemElementMap, pRenderTargetItem, pSceneView);
+    m_SceneViews.insert(pSceneView);
+    ++m_uiStatsSceneViewCount;
+    return pSceneView;
+}
+
+bool CClientRenderElementManager::RenderRequestedSceneView()
+{
+    // Stage 1 deliberately permits one world render per frame. Consume the flag before entering GTA so the
+    // nested sky hook sees an empty queue and cannot recursively render this view.
+    for (CClientSceneView* pSceneView : m_SceneViews)
+    {
+        if (!pSceneView->ConsumeRenderRequest())
+            continue;
+
+        const bool bBegan = m_pRenderItemManager->BeginSceneViewRender(pSceneView->GetRenderTargetItem(), pSceneView->GetDepthStencilTargetItem(),
+                                                                       pSceneView->GetCameraMatrix(), pSceneView->GetFOV(), true);
+        bool       bRendered = false;
+        if (bBegan)
+        {
+            bRendered = g_pMultiplayer->RenderSecondaryScene();
+            m_pRenderItemManager->EndRenderPass();
+        }
+        pSceneView->SetLastRenderSucceeded(bRendered);
+        return bRendered;
+    }
+    return false;
+}
+
 ////////////////////////////////////////////////////////////////
 //
 // CClientRenderElementManager::CreateScreenSource
@@ -400,6 +450,11 @@ void CClientRenderElementManager::Remove(CClientRenderElement* pElement)
         m_uiStatsGuiFontCount--;
     else if (pElement->IsA(CClientShader::GetClassId()))
         m_uiStatsShaderCount--;
+    else if (pElement->IsA(CClientSceneView::GetClassId()))
+    {
+        m_SceneViews.erase(static_cast<CClientSceneView*>(pElement));
+        m_uiStatsSceneViewCount--;
+    }
     else if (pElement->IsA(CClientRenderTarget::GetClassId()))
         m_uiStatsRenderTargetCount--;
     else if (pElement->IsA(CClientDepthStencilTarget::GetClassId()))

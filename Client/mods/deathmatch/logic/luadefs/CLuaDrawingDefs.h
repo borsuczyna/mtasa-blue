@@ -61,6 +61,11 @@ public:
     LUA_DECLARE(DxCreateRenderTarget);
     LUA_DECLARE(DxCreateDepthStencilTarget);
     LUA_DECLARE(DxCreateMrtSet);
+    LUA_DECLARE(DxCreateSceneView);
+    LUA_DECLARE(DxSetSceneViewCamera);
+    LUA_DECLARE(DxRequestSceneViewRender);
+    LUA_DECLARE(DxGetSceneViewTexture);
+    LUA_DECLARE(DxGetSceneViewInfo);
     LUA_DECLARE(DxCreateScreenSource);
     LUA_DECLARE(DxGetMaterialSize);
     LUA_DECLARE(DxSetShaderValue);
@@ -101,4 +106,5 @@ private:
     static void AddDxRenderTargetClass(lua_State* luaVM);
     static void AddDxDepthStencilTargetClass(lua_State* luaVM);
     static void AddDxMrtSetClass(lua_State* luaVM);
+    static void AddDxSceneViewClass(lua_State* luaVM);
 };

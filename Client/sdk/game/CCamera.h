@@ -125,6 +125,8 @@ public:
     virtual void      RestoreWithJumpCut() = 0;
     virtual CMatrix*  GetMatrix(CMatrix* matrix) = 0;
     virtual void      SetMatrix(CMatrix* matrix) = 0;
+    virtual void      CopyCameraMatrixToRWCam(bool bUpdateMatrix) = 0;
+    virtual void      CalculateDerivedValues(bool bForMirror, bool bOriented) = 0;
     virtual void      Find3rdPersonCamTargetVector(float fDistance, CVector* vecGunMuzzle, CVector* vecSource, CVector* vecTarget) = 0;
     virtual float     Find3rdPersonQuickAimPitch() = 0;
     virtual BYTE      GetActiveCam() = 0;

@@ -72,6 +72,10 @@ private:
     bool               m_bHasSavedDepthStencil;
     IDirect3DSurface9* m_pSavedDepthStencil;
     D3DVIEWPORT9       m_SavedViewport;
+    D3DXMATRIX         m_SavedWorld;
+    D3DXMATRIX         m_SavedView;
+    D3DXMATRIX         m_SavedProjection;
+    bool               m_bHasSavedTransforms;
 
     bool    m_bCameraApplied;
     CMatrix m_SavedCameraMatrix;

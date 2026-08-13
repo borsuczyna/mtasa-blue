@@ -95,6 +95,7 @@ typedef bool(ProcessCamHandler)(class CCam* pCam);
 typedef void(DrawRadarAreasHandler)();
 typedef void(Render3DStuffHandler)();
 typedef void(PreRenderSkyHandler)();
+typedef void(PreConstructRenderListHandler)();
 typedef void(RenderHeliLightHandler)();
 typedef bool(ChokingHandler)(unsigned char ucWeaponType);
 typedef void(PreWeatherUpdateHandler)();
@@ -387,6 +388,8 @@ public:
     virtual void SetDrawRadarAreasHandler(DrawRadarAreasHandler* pRadarAreasHandler) = 0;
     virtual void SetRender3DStuffHandler(Render3DStuffHandler* pHandler) = 0;
     virtual void SetPreRenderSkyHandler(PreRenderSkyHandler* pHandler) = 0;
+    virtual void SetPreConstructRenderListHandler(PreConstructRenderListHandler* pHandler) = 0;
+    virtual bool RenderSecondaryScene() = 0;
     virtual void SetRenderHeliLightHandler(RenderHeliLightHandler* pHandler) = 0;
     virtual void SetRenderEverythingBarRoadsHandler(RenderEverythingBarRoadsHandler* pHandler) = 0;
 

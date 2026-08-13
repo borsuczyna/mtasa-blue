@@ -390,6 +390,8 @@ public:
     void         RestoreWithJumpCut() override;
     CMatrix*     GetMatrix(CMatrix* matrix) override;
     void         SetMatrix(CMatrix* matrix) override;
+    void         CopyCameraMatrixToRWCam(bool bUpdateMatrix) override;
+    void         CalculateDerivedValues(bool bForMirror, bool bOriented) override;
     void         Find3rdPersonCamTargetVector(float fDistance, CVector* vecGunMuzzle, CVector* vecSource, CVector* vecTarget) override;
     float        Find3rdPersonQuickAimPitch() override;
     BYTE         GetActiveCam() override;

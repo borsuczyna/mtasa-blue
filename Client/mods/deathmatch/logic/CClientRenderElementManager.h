@@ -17,6 +17,7 @@ class CClientShader;
 class CClientRenderTarget;
 class CClientDepthStencilTarget;
 class CClientMrtSet;
+class CClientSceneView;
 class CClientScreenSource;
 class CClientWebBrowser;
 class CClientVectorGraphic;
@@ -34,9 +35,11 @@ public:
                                   ETextureType textureType = TTYPE_TEXTURE, uint uiVolumeDepth = 1);
     CClientShader* CreateShader(const SString& strFile, const SString& strRootPath, bool bIsRawData, SString& strOutStatus, float fPriority, float fMaxDistance,
                                 bool bLayered, bool bDebug, int iTypeMask, const EffectMacroList& macros);
-    CClientRenderTarget*  CreateRenderTarget(uint uiSizeX, uint uiSizeY, bool bHasSurfaceFormat, bool bWithAlphaChannel, _D3DFORMAT surfaceFormat);
+    CClientRenderTarget*       CreateRenderTarget(uint uiSizeX, uint uiSizeY, bool bHasSurfaceFormat, bool bWithAlphaChannel, _D3DFORMAT surfaceFormat);
     CClientDepthStencilTarget* CreateDepthStencilTarget(uint uiSizeX, uint uiSizeY, _D3DFORMAT surfaceFormat, bool bSampleable);
     CClientMrtSet* CreateMrtSet(CClientRenderTarget* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets, CClientDepthStencilTarget* pDepthStencilTarget);
+    CClientSceneView*     CreateSceneView(uint uiSizeX, uint uiSizeY, _D3DFORMAT colorFormat, _D3DFORMAT depthFormat);
+    bool                  RenderRequestedSceneView();
     CClientScreenSource*  CreateScreenSource(uint uiSizeX, uint uiSizeY);
     CClientWebBrowser*    CreateWebBrowser(uint uiSizeX, uint uiSizeY, bool bIsLocal, bool bTransparent);
     CClientVectorGraphic* CreateVectorGraphic(uint width, uint height);
@@ -50,6 +53,7 @@ public:
     uint GetRenderTargetCount() { return m_uiStatsRenderTargetCount; }
     uint GetDepthStencilTargetCount() { return m_uiStatsDepthStencilTargetCount; }
     uint GetMrtSetCount() { return m_uiStatsMrtSetCount; }
+    uint GetSceneViewCount() { return m_uiStatsSceneViewCount; }
     uint GetScreenSourceCount() { return m_uiStatsScreenSourceCount; }
     uint GetWebBrowserCount() { return m_uiStatsWebBrowserCount; }
     uint GetVectorGraphicCount() { return m_uiStatsVectorGraphicCount; }
@@ -66,6 +70,8 @@ protected:
     uint                                          m_uiStatsRenderTargetCount;
     uint                                          m_uiStatsDepthStencilTargetCount;
     uint                                          m_uiStatsMrtSetCount;
+    uint                                          m_uiStatsSceneViewCount;
+    std::set<CClientSceneView*>                   m_SceneViews;
     uint                                          m_uiStatsScreenSourceCount;
     uint                                          m_uiStatsWebBrowserCount;
     uint                                          m_uiStatsVectorGraphicCount;

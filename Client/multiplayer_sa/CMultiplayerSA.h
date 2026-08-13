@@ -275,6 +275,8 @@ public:
     void SetDrawRadarAreasHandler(DrawRadarAreasHandler* pRadarAreasHandler);
     void SetRender3DStuffHandler(Render3DStuffHandler* pHandler);
     void SetPreRenderSkyHandler(PreRenderSkyHandler* pHandler);
+    void SetPreConstructRenderListHandler(PreConstructRenderListHandler* pHandler) override;
+    bool RenderSecondaryScene() override;
     void SetRenderHeliLightHandler(RenderHeliLightHandler* pHandler);
     void SetRenderEverythingBarRoadsHandler(RenderEverythingBarRoadsHandler* pHandler) override;
 

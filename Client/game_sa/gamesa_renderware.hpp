@@ -82,6 +82,10 @@ void InitRwFunctions()
     RwRasterUnlock = (RwRasterUnlock_t)0x007FAEC0;
     RwRasterLock = (RwRasterLock_t)0x007FB2D0;
     RwRasterCreate = (RwRasterCreate_t)0x007FB230;
+    RwRasterDestroy = (RwRasterDestroy_t)0x007FB020;
+    RwCameraBeginUpdate = (RwCameraBeginUpdate_t)0x007EE190;
+    RwCameraEndUpdate = (RwCameraEndUpdate_t)0x007EE180;
+    RwCameraClear = (RwCameraClear_t)0x007EE340;
     RwTextureCreate = (RwTextureCreate_t)0x007F37C0;
     RpMaterialSetTexture = (RpMaterialSetTexture_t)0x0074DBC0;
     GetAnimHierarchyFromClump = (GetAnimHierarchyFromClump_t)0x734B10;

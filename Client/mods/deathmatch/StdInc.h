@@ -92,6 +92,7 @@
 #include <CClientGuiFont.h>
 #include <CClientMaterial.h>
 #include <CClientTexture.h>
+#include <CClientSceneView.h>
 #include <CClientShader.h>
 #include <CClientWebBrowser.h>
 #include <CClientSearchLight.h>
