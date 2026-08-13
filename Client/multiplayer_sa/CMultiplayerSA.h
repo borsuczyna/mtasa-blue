@@ -277,6 +277,7 @@ public:
     void SetPreRenderSkyHandler(PreRenderSkyHandler* pHandler);
     void SetPreConstructRenderListHandler(PreConstructRenderListHandler* pHandler) override;
     bool RenderSecondaryScene() override;
+    void ReleaseSecondarySceneResources() override;
     void SetRenderHeliLightHandler(RenderHeliLightHandler* pHandler);
     void SetRenderEverythingBarRoadsHandler(RenderEverythingBarRoadsHandler* pHandler) override;
 
@@ -377,6 +378,13 @@ public:
     bool         m_bBadDrivebyHitboxesDisabled;
 
 private:
+    // These RenderWare-owned targets must outlive one world pass, but not the scene-view subsystem or the
+    // D3D9 device. Keeping ownership here makes their reset/resource-stop lifetime explicit.
+    RwRaster* m_pSecondarySceneColorRaster{};
+    RwRaster* m_pSecondarySceneDepthRaster{};
+    UINT      m_uiSecondarySceneRasterWidth{};
+    UINT      m_uiSecondarySceneRasterHeight{};
+
     std::vector<char>   m_PlayerImgCache;
     EFastClothesLoading m_FastClothesLoading;
     CLimitsSA           m_limits;

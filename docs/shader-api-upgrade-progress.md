@@ -8,7 +8,7 @@ This is a living current-state snapshot, updated in place as work lands. It has 
 
 - [x] CRenderStateScope (done — `Client/core/Graphics/CRenderStateScope.h/.cpp`)
 - [x] Device-loss/resource-stop integration (done — new item types plug into the existing `CRenderItemManager::OnLostDevice`/`OnResetDevice` fan-out and `CClientRenderElement`/`SetParent` ownership; no parallel mechanism added)
-- [ ] Recursive-render guard (pending — not needed yet, nothing manually re-enters `Render3DStuff` until item 13)
+- [x] Recursive-render guard (done — secondary world rendering rejects re-entry and consumes the queued flag before entering GTA rendering)
 
 ## Stage 1 — Capability reporting, diagnostics, accounting, MRT, custom depth, render passes, one scene view
 
@@ -21,11 +21,11 @@ This is a living current-state snapshot, updated in place as work lands. It has 
 - [x] 10. Custom depth-stencil targets (done — `CDepthStencilTargetItem`/`CClientDepthStencilTarget`/`dxCreateDepthStencilTarget`; **sampleable path explicitly not implemented**, rejected with a clear error)
 - [x] 11. MRT binding + validation (done — `CMrtSetItem`/`CClientMrtSet`/`dxCreateMrtSet`)
 - [x] 12. Safe scoped render-pass infrastructure (done — `dxBeginRenderPass`/`dxEndRenderPass`, backed by `CRenderStateScope`; defensively force-closed in `CDirect3DEvents9::OnPresent` and `CRenderItemManager::OnLostDevice`, matching the existing `RestoreDefaultRenderTarget()` "in case script forgets" pattern. Known limitation: the open-pass stack is global, not per-resource, so one resource could in principle call `dxEndRenderPass` while another resource's pass is open — same trust model as the existing single-slot `dxSetRenderTarget`, not a new class of risk, but not yet hardened further)
-- [ ] 13. One independent scene view (in-progress — `DxSceneView` owns a drawable color target and private depth surface; camera setup, queued rendering, one-view Stage-1 cap, recursive-world-render guard and scoped target/depth/viewport/camera restoration are implemented and build successfully. In-game validation remains mandatory before marking done)
-- [ ] 14. Camera/state restoration validation (pending — blocked on 13)
+- [x] 13. One independent scene view proof of concept (done — `DxSceneView` provides camera setup, queued rendering and a one-view Stage-1 cap. The secondary GTA world is rendered through private RenderWare color/depth rasters with a full RW camera update lifecycle, then copied into the script-visible texture. In-game testing confirmed independent static-world, vehicle and ped rendering without framebuffer leakage. Commit: `cee4fdc5c`)
+- [x] 14. Camera/state and RenderWare-resource validation (done for the Stage-1 scope — persistent RW rasters now have explicit `CMultiplayerSA` ownership, are released when the final SceneView disappears and before D3D9 reset, and are recreated lazily. Scoped camera-raster cleanup closes an active RW update and restores original camera rasters on every normal exit. Debug Win32 compilation and in-game resource restart, stop/start and repeated alt-tab tests passed. Runtime resolution switching is intentionally not handled because MTA does not expose it in game; target dimensions are handled when views are recreated.)
 
 ### Verification
-The Debug Win32 client builds successfully in Visual Studio. The `dx9_foundation_test` resource has also passed an in-game MRT/custom-depth/render-pass smoke test on hardware reporting four simultaneous render targets. The second target remains black with ordinary `dxDraw*` calls by design; a shader writing distinct `COLOR0`/`COLOR1` outputs is still needed for the deterministic MRT-output test.
+Debug Win32 compilation succeeds. The `dx9_foundation_test` resource passed in-game capability, custom-depth, render-pass and true MRT tests on hardware reporting four simultaneous render targets; a shader produced visibly distinct `COLOR0` and `COLOR1` outputs. The same resource proves a genuinely independent RenderWare-backed world view while leaving the primary camera output intact. Resource restart, stop/start and repeated alt-tab/device-reset tests also pass after explicit RW raster lifecycle integration.
 
 ## Sky shaders
 
@@ -37,6 +37,8 @@ The Debug Win32 client builds successfully in Visual Studio. The `dx9_foundation
 - [ ] Raise scene-view cap + update modes (pending)
 - [ ] Per-view GPU-time accounting (`CGpuQueryManager`) (pending)
 - [ ] Budget-exceeded rejection (pending)
+- [ ] Isolated per-SceneView world-material shader assignments that ignore primary/other-view shader maps (planned)
+- [ ] SceneView output post-process chain using safe render passes and ping-pong targets; `dxGetSceneViewTexture` remains a plain getter (planned)
 
 ## Stage 3 — Cubemap render targets
 

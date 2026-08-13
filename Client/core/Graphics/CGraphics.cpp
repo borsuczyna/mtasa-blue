@@ -1703,6 +1703,11 @@ void CGraphics::OnDeviceCreate(IDirect3DDevice9* pDevice)
 
 void CGraphics::OnDeviceInvalidate(IDirect3DDevice9* pDevice)
 {
+    // RenderWare camera rasters wrap default-pool D3D9 surfaces. Release the secondary-view pair before
+    // the regular render items so no stale RW raster can retain a surface across Reset().
+    if (g_pCore && g_pCore->GetMultiplayer())
+        g_pCore->GetMultiplayer()->ReleaseSecondarySceneResources();
+
     for (int i = 0; i < NUM_FONTS; i++)
     {
         if (m_pDXFonts[i])

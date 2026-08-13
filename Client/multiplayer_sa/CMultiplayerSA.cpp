@@ -2774,43 +2774,25 @@ bool CMultiplayerSA::RenderSecondaryScene()
     // between the two targets and peds leaked onto the primary framebuffer. A real off-screen pass needs its
     // own RwRaster-backed color/depth target attached to the camera for the whole pass, exactly like GTA's own
     // mirror rendering (CMirrors::BeforeMainRender) does.
-    static RwRaster* s_pSecondaryColorRaster = nullptr;
-    static RwRaster* s_pSecondaryDepthRaster = nullptr;
-    static UINT      s_uiRasterWidth = 0;
-    static UINT      s_uiRasterHeight = 0;
-
-    if (!s_pSecondaryColorRaster || !s_pSecondaryDepthRaster || s_uiRasterWidth != finalDesc.Width || s_uiRasterHeight != finalDesc.Height)
+    if (!m_pSecondarySceneColorRaster || !m_pSecondarySceneDepthRaster || m_uiSecondarySceneRasterWidth != finalDesc.Width ||
+        m_uiSecondarySceneRasterHeight != finalDesc.Height)
     {
-        if (s_pSecondaryColorRaster)
-        {
-            RwRasterDestroy(s_pSecondaryColorRaster);
-            s_pSecondaryColorRaster = nullptr;
-        }
-        if (s_pSecondaryDepthRaster)
-        {
-            RwRasterDestroy(s_pSecondaryDepthRaster);
-            s_pSecondaryDepthRaster = nullptr;
-        }
-        s_uiRasterWidth = 0;
-        s_uiRasterHeight = 0;
+        ReleaseSecondarySceneResources();
 
-        s_pSecondaryColorRaster = RwRasterCreate(static_cast<int>(finalDesc.Width), static_cast<int>(finalDesc.Height), 0, RWRASTERTYPECAMERATEXTURE);
-        s_pSecondaryDepthRaster =
-            s_pSecondaryColorRaster ? RwRasterCreate(static_cast<int>(finalDesc.Width), static_cast<int>(finalDesc.Height), 0, RWRASTERTYPEZBUFFER) : nullptr;
+        m_pSecondarySceneColorRaster = RwRasterCreate(static_cast<int>(finalDesc.Width), static_cast<int>(finalDesc.Height), 0, RWRASTERTYPECAMERATEXTURE);
+        m_pSecondarySceneDepthRaster = m_pSecondarySceneColorRaster
+                                           ? RwRasterCreate(static_cast<int>(finalDesc.Width), static_cast<int>(finalDesc.Height), 0, RWRASTERTYPEZBUFFER)
+                                           : nullptr;
 
-        if (!s_pSecondaryColorRaster || !s_pSecondaryDepthRaster)
+        if (!m_pSecondarySceneColorRaster || !m_pSecondarySceneDepthRaster)
         {
-            if (s_pSecondaryColorRaster)
-            {
-                RwRasterDestroy(s_pSecondaryColorRaster);
-                s_pSecondaryColorRaster = nullptr;
-            }
+            ReleaseSecondarySceneResources();
             SAFE_RELEASE(pFinalColorSurface);
             return false;
         }
 
-        s_uiRasterWidth = finalDesc.Width;
-        s_uiRasterHeight = finalDesc.Height;
+        m_uiSecondarySceneRasterWidth = finalDesc.Width;
+        m_uiSecondarySceneRasterHeight = finalDesc.Height;
     }
 
     CCameraSAInterface* pCameraInterface = reinterpret_cast<CCameraSAInterface*>(VAR_TheCameraInterface);
@@ -2843,11 +2825,28 @@ bool CMultiplayerSA::RenderSecondaryScene()
     } scope;
 
     // --- Native CMirrors::BeforeMainRender lifecycle, adapted for an arbitrary off-screen camera ---
-    RwRaster* pPreviousColorRaster = pRwCamera->bufferColor;
-    RwRaster* pPreviousDepthRaster = pRwCamera->bufferDepth;
+    struct CScopedCameraRasters
+    {
+        CScopedCameraRasters(RwCamera* pCamera, RwRaster* pColor, RwRaster* pDepth)
+            : m_pCamera(pCamera), m_pPreviousColor(pCamera->bufferColor), m_pPreviousDepth(pCamera->bufferDepth)
+        {
+            m_pCamera->bufferColor = pColor;
+            m_pCamera->bufferDepth = pDepth;
+        }
 
-    pRwCamera->bufferColor = s_pSecondaryColorRaster;
-    pRwCamera->bufferDepth = s_pSecondaryDepthRaster;
+        ~CScopedCameraRasters()
+        {
+            if (m_bUpdateActive)
+                RwCameraEndUpdate(m_pCamera);
+            m_pCamera->bufferColor = m_pPreviousColor;
+            m_pCamera->bufferDepth = m_pPreviousDepth;
+        }
+
+        RwCamera* m_pCamera;
+        RwRaster* m_pPreviousColor;
+        RwRaster* m_pPreviousDepth;
+        bool      m_bUpdateActive{};
+    } cameraRasters(pRwCamera, m_pSecondarySceneColorRaster, m_pSecondarySceneDepthRaster);
 
     RwColor clearColor = {0, 0, 0, 0};
     RwCameraClear(pRwCamera, &clearColor, RWCAMERACLEARIMAGE | RWCAMERACLEARZ);
@@ -2856,6 +2855,7 @@ bool CMultiplayerSA::RenderSecondaryScene()
     IDirect3DSurface9* pSecondaryColorSurface = nullptr;
     if (RwCameraBeginUpdate(pRwCamera))
     {
+        cameraRasters.m_bUpdateActive = true;
         // RwCameraBeginUpdate just bound our secondary raster's own D3D9 surface as render target 0 (that is
         // what it does internally). Reading it back here - rather than reaching into RenderWare's private D3D9
         // raster extension ourselves - is the safe way to get a handle on it for the copy below.
@@ -2877,11 +2877,9 @@ bool CMultiplayerSA::RenderSecondaryScene()
         reinterpret_cast<void(__cdecl*)()>(FUNC_RenderEffects)();
 
         RwCameraEndUpdate(pRwCamera);
+        cameraRasters.m_bUpdateActive = false;
         bRendered = true;
     }
-
-    pRwCamera->bufferColor = pPreviousColorRaster;
-    pRwCamera->bufferDepth = pPreviousDepthRaster;
 
     if (bRendered && pSecondaryColorSurface)
     {
@@ -2898,6 +2896,21 @@ bool CMultiplayerSA::RenderSecondaryScene()
     SAFE_RELEASE(pSecondaryColorSurface);
     SAFE_RELEASE(pFinalColorSurface);
     return bRendered;
+}
+
+void CMultiplayerSA::ReleaseSecondarySceneResources()
+{
+    // RenderWare owns the wrapped D3D9 textures, so destruction must go through RW rather than releasing
+    // backend surfaces directly. The next requested scene view recreates a compatible pair lazily.
+    if (m_pSecondarySceneColorRaster)
+        RwRasterDestroy(m_pSecondarySceneColorRaster);
+    if (m_pSecondarySceneDepthRaster)
+        RwRasterDestroy(m_pSecondarySceneDepthRaster);
+
+    m_pSecondarySceneColorRaster = nullptr;
+    m_pSecondarySceneDepthRaster = nullptr;
+    m_uiSecondarySceneRasterWidth = 0;
+    m_uiSecondarySceneRasterHeight = 0;
 }
 
 void CMultiplayerSA::SetDamageHandler(DamageHandler* pDamageHandler)
@@ -4629,6 +4642,7 @@ void CMultiplayerSA::SetBulletFireHandler(BulletFireHandler* pHandler)
 
 void CMultiplayerSA::Reset()
 {
+    ReleaseSecondarySceneResources();
     bHideRadar = false;
     m_pExplosionHandler = NULL;
     m_pPreContextSwitchHandler = NULL;

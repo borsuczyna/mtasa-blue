@@ -454,6 +454,12 @@ void CClientRenderElementManager::Remove(CClientRenderElement* pElement)
     {
         m_SceneViews.erase(static_cast<CClientSceneView*>(pElement));
         m_uiStatsSceneViewCount--;
+
+        // Stage 1 has one shared native off-screen raster pair. Once its final owner disappears (normally
+        // because a resource stopped), release that pair immediately instead of retaining GPU memory until
+        // the multiplayer module or D3D device is reset.
+        if (m_SceneViews.empty() && g_pMultiplayer)
+            g_pMultiplayer->ReleaseSecondarySceneResources();
     }
     else if (pElement->IsA(CClientRenderTarget::GetClassId()))
         m_uiStatsRenderTargetCount--;

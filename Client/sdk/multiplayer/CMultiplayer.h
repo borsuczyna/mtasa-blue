@@ -390,6 +390,7 @@ public:
     virtual void SetPreRenderSkyHandler(PreRenderSkyHandler* pHandler) = 0;
     virtual void SetPreConstructRenderListHandler(PreConstructRenderListHandler* pHandler) = 0;
     virtual bool RenderSecondaryScene() = 0;
+    virtual void ReleaseSecondarySceneResources() = 0;
     virtual void SetRenderHeliLightHandler(RenderHeliLightHandler* pHandler) = 0;
     virtual void SetRenderEverythingBarRoadsHandler(RenderEverythingBarRoadsHandler* pHandler) = 0;
 
