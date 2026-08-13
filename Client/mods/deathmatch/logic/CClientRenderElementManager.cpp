@@ -26,6 +26,8 @@ CClientRenderElementManager::CClientRenderElementManager(CClientManager* pClient
     m_uiStatsTextureCount = 0;
     m_uiStatsShaderCount = 0;
     m_uiStatsRenderTargetCount = 0;
+    m_uiStatsDepthStencilTargetCount = 0;
+    m_uiStatsMrtSetCount = 0;
     m_uiStatsScreenSourceCount = 0;
     m_uiStatsWebBrowserCount = 0;
     m_uiStatsVectorGraphicCount = 0;
@@ -192,6 +194,69 @@ CClientRenderTarget* CClientRenderElementManager::CreateRenderTarget(uint uiSize
 
 ////////////////////////////////////////////////////////////////
 //
+// CClientRenderElementManager::CreateDepthStencilTarget
+//
+//
+//
+////////////////////////////////////////////////////////////////
+CClientDepthStencilTarget* CClientRenderElementManager::CreateDepthStencilTarget(uint uiSizeX, uint uiSizeY, _D3DFORMAT surfaceFormat, bool bSampleable)
+{
+    // Create the item
+    CDepthStencilTargetItem* pDepthStencilTargetItem = m_pRenderItemManager->CreateDepthStencilTarget(uiSizeX, uiSizeY, surfaceFormat, bSampleable);
+
+    // Check create worked
+    if (!pDepthStencilTargetItem)
+        return NULL;
+
+    // Create the element
+    CClientDepthStencilTarget* pDepthStencilTargetElement = new CClientDepthStencilTarget(m_pClientManager, INVALID_ELEMENT_ID, pDepthStencilTargetItem);
+
+    // Add to this manager's list
+    MapSet(m_ItemElementMap, pDepthStencilTargetItem, pDepthStencilTargetElement);
+
+    // Update stats
+    m_uiStatsDepthStencilTargetCount++;
+
+    return pDepthStencilTargetElement;
+}
+
+////////////////////////////////////////////////////////////////
+//
+// CClientRenderElementManager::CreateMrtSet
+//
+//
+//
+////////////////////////////////////////////////////////////////
+CClientMrtSet* CClientRenderElementManager::CreateMrtSet(CClientRenderTarget* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets,
+                                                         CClientDepthStencilTarget* pDepthStencilTarget)
+{
+    CRenderTargetItem* itemTargets[MAX_MRT_RENDER_TARGETS] = {nullptr, nullptr, nullptr, nullptr};
+    for (uint i = 0; i < uiNumTargets && i < MAX_MRT_RENDER_TARGETS; i++)
+        itemTargets[i] = targets[i] ? targets[i]->GetRenderTargetItem() : nullptr;
+
+    CDepthStencilTargetItem* pDepthStencilTargetItem = pDepthStencilTarget ? pDepthStencilTarget->GetDepthStencilTargetItem() : nullptr;
+
+    // Create the item
+    CMrtSetItem* pMrtSetItem = m_pRenderItemManager->CreateMrtSet(itemTargets, uiNumTargets, pDepthStencilTargetItem);
+
+    // Check create worked
+    if (!pMrtSetItem)
+        return NULL;
+
+    // Create the element
+    CClientMrtSet* pMrtSetElement = new CClientMrtSet(m_pClientManager, INVALID_ELEMENT_ID, pMrtSetItem);
+
+    // Add to this manager's list
+    MapSet(m_ItemElementMap, pMrtSetItem, pMrtSetElement);
+
+    // Update stats
+    m_uiStatsMrtSetCount++;
+
+    return pMrtSetElement;
+}
+
+////////////////////////////////////////////////////////////////
+//
 // CClientRenderElementManager::CreateScreenSource
 //
 //
@@ -337,6 +402,10 @@ void CClientRenderElementManager::Remove(CClientRenderElement* pElement)
         m_uiStatsShaderCount--;
     else if (pElement->IsA(CClientRenderTarget::GetClassId()))
         m_uiStatsRenderTargetCount--;
+    else if (pElement->IsA(CClientDepthStencilTarget::GetClassId()))
+        m_uiStatsDepthStencilTargetCount--;
+    else if (pElement->IsA(CClientMrtSet::GetClassId()))
+        m_uiStatsMrtSetCount--;
     else if (pElement->IsA(CClientScreenSource::GetClassId()))
         m_uiStatsScreenSourceCount--;
     else if (pElement->IsA(CClientWebBrowser::GetClassId()))

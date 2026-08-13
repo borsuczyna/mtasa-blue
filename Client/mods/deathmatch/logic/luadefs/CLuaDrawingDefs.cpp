@@ -43,15 +43,22 @@ void CLuaDrawingDefs::LoadFunctions()
         {"dxCreateFont", DxCreateFont},
         {"dxCreateTexture", DxCreateTexture},
         {"dxCreateShader", DxCreateShader},
+        {"dxGetShaderDiagnostics", DxGetShaderDiagnostics},
+        {"dxGetRenderStatistics", DxGetRenderStatistics},
         {"dxCreateRenderTarget", DxCreateRenderTarget},
+        {"dxCreateDepthStencilTarget", DxCreateDepthStencilTarget},
+        {"dxCreateMrtSet", DxCreateMrtSet},
         {"dxCreateScreenSource", DxCreateScreenSource},
         {"dxGetMaterialSize", DxGetMaterialSize},
         {"dxSetShaderValue", DxSetShaderValue},
         {"dxSetShaderTessellation", DxSetShaderTessellation},
         {"dxSetShaderTransform", DxSetShaderTransform},
         {"dxSetRenderTarget", DxSetRenderTarget},
+        {"dxBeginRenderPass", DxBeginRenderPass},
+        {"dxEndRenderPass", DxEndRenderPass},
         {"dxUpdateScreenSource", DxUpdateScreenSource},
         {"dxGetStatus", DxGetStatus},
+        {"dxGetRenderCapabilities", DxGetRenderCapabilities},
         {"dxSetTestMode", DxSetTestMode},
         {"dxGetTexturePixels", DxGetTexturePixels},
         {"dxSetTexturePixels", DxSetTexturePixels},
@@ -80,6 +87,8 @@ void CLuaDrawingDefs::AddClass(lua_State* luaVM)
     AddDxShaderClass(luaVM);
     AddDxScreenSourceClass(luaVM);
     AddDxRenderTargetClass(luaVM);
+    AddDxDepthStencilTargetClass(luaVM);
+    AddDxMrtSetClass(luaVM);
 }
 
 void CLuaDrawingDefs::AddDxMaterialClass(lua_State* luaVM)
@@ -129,6 +138,7 @@ void CLuaDrawingDefs::AddDxShaderClass(lua_State* luaVM)
     lua_classfunction(luaVM, "setValue", "dxSetShaderValue");
     lua_classfunction(luaVM, "setTessellation", "dxSetShaderTessellation");
     lua_classfunction(luaVM, "setTransform", "dxSetShaderTransform");
+    lua_classfunction(luaVM, "getDiagnostics", "dxGetShaderDiagnostics");
 
     // lua_classvariable ( luaVM, "value", CLuaOOPDefs::SetShaderValue, NULL); // .value["param"] = value
     lua_classvariable(luaVM, "tessellation", "dxSetShaderTessellation", NULL);
@@ -154,6 +164,25 @@ void CLuaDrawingDefs::AddDxRenderTargetClass(lua_State* luaVM)
     lua_classfunction(luaVM, "setAsTarget", "dxSetRenderTarget");
 
     lua_registerclass(luaVM, "DxRenderTarget", "DxTexture");
+}
+
+void CLuaDrawingDefs::AddDxDepthStencilTargetClass(lua_State* luaVM)
+{
+    lua_newclass(luaVM);
+
+    lua_classfunction(luaVM, "create", "dxCreateDepthStencilTarget");
+
+    // Not a DxTexture/DxMaterial - a depth-stencil target isn't drawable via dxDrawImage
+    lua_registerclass(luaVM, "DxDepthStencilTarget", "Element");
+}
+
+void CLuaDrawingDefs::AddDxMrtSetClass(lua_State* luaVM)
+{
+    lua_newclass(luaVM);
+
+    lua_classfunction(luaVM, "create", "dxCreateMrtSet");
+
+    lua_registerclass(luaVM, "DxMrtSet", "Element");
 }
 
 int CLuaDrawingDefs::DxDrawLine(lua_State* luaVM)
@@ -1116,6 +1145,98 @@ int CLuaDrawingDefs::DxCreateTexture(lua_State* luaVM)
     return 1;
 }
 
+namespace
+{
+    void PushShaderDiagnostics(lua_State* luaVM, const SShaderDiagnostics& diagnostics)
+    {
+        lua_createtable(luaVM, 0, 12);
+
+        lua_pushstring(luaVM, "compiled");
+        lua_pushboolean(luaVM, diagnostics.bCompiled);
+        lua_settable(luaVM, -3);
+        lua_pushstring(luaVM, "sourceIdentifier");
+        lua_pushstring(luaVM, diagnostics.strSourceIdentifier);
+        lua_settable(luaVM, -3);
+        lua_pushstring(luaVM, "compileLog");
+        lua_pushstring(luaVM, diagnostics.strCompileLog);
+        lua_settable(luaVM, -3);
+        lua_pushstring(luaVM, "selectedTechnique");
+        lua_pushstring(luaVM, diagnostics.strSelectedTechnique);
+        lua_settable(luaVM, -3);
+        lua_pushstring(luaVM, "createHResult");
+        lua_pushnumber(luaVM, diagnostics.lCreateHResult);
+        lua_settable(luaVM, -3);
+        lua_pushstring(luaVM, "vertexShaderProfile");
+        lua_pushstring(luaVM, diagnostics.strVertexShaderProfile);
+        lua_settable(luaVM, -3);
+        lua_pushstring(luaVM, "pixelShaderProfile");
+        lua_pushstring(luaVM, diagnostics.strPixelShaderProfile);
+        lua_settable(luaVM, -3);
+        lua_pushstring(luaVM, "usesVertexShader");
+        lua_pushboolean(luaVM, diagnostics.bUsesVertexShader);
+        lua_settable(luaVM, -3);
+        lua_pushstring(luaVM, "usesDepthBuffer");
+        lua_pushboolean(luaVM, diagnostics.bUsesDepthBuffer);
+        lua_settable(luaVM, -3);
+        lua_pushstring(luaVM, "usesMultipleRenderTargets");
+        lua_pushboolean(luaVM, diagnostics.bUsesMultipleRenderTargets);
+        lua_settable(luaVM, -3);
+
+        lua_pushstring(luaVM, "techniques");
+        lua_createtable(luaVM, static_cast<int>(diagnostics.techniques.size()), 0);
+        for (size_t i = 0; i < diagnostics.techniques.size(); ++i)
+        {
+            const auto& technique = diagnostics.techniques[i];
+            lua_createtable(luaVM, 0, 3);
+            lua_pushstring(luaVM, "name");
+            lua_pushstring(luaVM, technique.strName);
+            lua_settable(luaVM, -3);
+            lua_pushstring(luaVM, "passCount");
+            lua_pushnumber(luaVM, technique.uiPassCount);
+            lua_settable(luaVM, -3);
+            lua_pushstring(luaVM, "valid");
+            lua_pushboolean(luaVM, technique.bValid);
+            lua_settable(luaVM, -3);
+            lua_rawseti(luaVM, -2, static_cast<int>(i + 1));
+        }
+        lua_settable(luaVM, -3);
+
+        lua_pushstring(luaVM, "parameters");
+        lua_createtable(luaVM, static_cast<int>(diagnostics.parameters.size()), 0);
+        for (size_t i = 0; i < diagnostics.parameters.size(); ++i)
+        {
+            const auto& parameter = diagnostics.parameters[i];
+            lua_createtable(luaVM, 0, 8);
+            lua_pushstring(luaVM, "name");
+            lua_pushstring(luaVM, parameter.strName);
+            lua_settable(luaVM, -3);
+            lua_pushstring(luaVM, "semantic");
+            lua_pushstring(luaVM, parameter.strSemantic);
+            lua_settable(luaVM, -3);
+            lua_pushstring(luaVM, "class");
+            lua_pushstring(luaVM, parameter.strClass);
+            lua_settable(luaVM, -3);
+            lua_pushstring(luaVM, "type");
+            lua_pushstring(luaVM, parameter.strType);
+            lua_settable(luaVM, -3);
+            lua_pushstring(luaVM, "rows");
+            lua_pushnumber(luaVM, parameter.uiRows);
+            lua_settable(luaVM, -3);
+            lua_pushstring(luaVM, "columns");
+            lua_pushnumber(luaVM, parameter.uiColumns);
+            lua_settable(luaVM, -3);
+            lua_pushstring(luaVM, "elements");
+            lua_pushnumber(luaVM, parameter.uiElements);
+            lua_settable(luaVM, -3);
+            lua_pushstring(luaVM, "annotations");
+            lua_pushnumber(luaVM, parameter.uiAnnotations);
+            lua_settable(luaVM, -3);
+            lua_rawseti(luaVM, -2, static_cast<int>(i + 1));
+        }
+        lua_settable(luaVM, -3);
+    }
+}
+
 int CLuaDrawingDefs::DxCreateShader(lua_State* luaVM)
 {
     //  element dxCreateShader( string filepath / string raw_data [, float priority = 0, float maxdistance = 0, bool layered = false, string elementTypes =
@@ -1212,7 +1333,10 @@ int CLuaDrawingDefs::DxCreateShader(lua_State* luaVM)
         pShader->SetParent(pParentResource->GetResourceDynamicEntity());
         lua_pushelement(luaVM, pShader);
         lua_pushstring(luaVM, strStatus);
-        return 2;
+        SShaderDiagnostics diagnostics;
+        g_pCore->GetGraphics()->GetRenderItemManager()->GetShaderDiagnostics(pShader->GetShaderItem(), diagnostics);
+        PushShaderDiagnostics(luaVM, diagnostics);
+        return 3;
     }
 
     // Replace any path in the error message with our own one
@@ -1221,6 +1345,62 @@ int CLuaDrawingDefs::DxCreateShader(lua_State* luaVM)
     argStream.SetCustomError(bIsRawData ? SStringX("raw data") : strFile, strStatus);
     m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
     lua_pushboolean(luaVM, false);
+    lua_pushstring(luaVM, strStatus);
+    SShaderDiagnostics diagnostics;
+    if (bIsRawData)
+        diagnostics.strSourceIdentifier = "<raw-data>";
+    else
+        diagnostics.strSourceIdentifier = strFile;
+    diagnostics.strCompileLog = strStatus;
+    PushShaderDiagnostics(luaVM, diagnostics);
+    return 3;
+}
+
+int CLuaDrawingDefs::DxGetShaderDiagnostics(lua_State* luaVM)
+{
+    CClientShader* pShader = nullptr;
+
+    CScriptArgReader argStream(luaVM);
+    argStream.ReadUserData(pShader);
+
+    if (!argStream.HasErrors())
+    {
+        SShaderDiagnostics diagnostics;
+        g_pCore->GetGraphics()->GetRenderItemManager()->GetShaderDiagnostics(pShader->GetShaderItem(), diagnostics);
+        PushShaderDiagnostics(luaVM, diagnostics);
+        return 1;
+    }
+
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxGetRenderStatistics(lua_State* luaVM)
+{
+    SRenderStatistics statistics;
+    g_pCore->GetGraphics()->GetRenderItemManager()->GetRenderStatistics(statistics);
+
+    lua_createtable(luaVM, 0, 14);
+#define PUSH_RENDER_STAT(Name, Value) \
+    lua_pushstring(luaVM, Name); \
+    lua_pushnumber(luaVM, Value); \
+    lua_settable(luaVM, -3)
+    PUSH_RENDER_STAT("openRenderPasses", statistics.uiOpenRenderPasses);
+    PUSH_RENDER_STAT("renderPassesStarted", statistics.uiRenderPassesStarted);
+    PUSH_RENDER_STAT("renderPassFailures", statistics.uiRenderPassFailures);
+    PUSH_RENDER_STAT("forcedRenderPassClosures", statistics.uiForcedRenderPassClosures);
+    PUSH_RENDER_STAT("renderItems", statistics.uiRenderItems);
+    PUSH_RENDER_STAT("shaders", statistics.uiShaders);
+    PUSH_RENDER_STAT("renderTargets", statistics.uiRenderTargets);
+    PUSH_RENDER_STAT("depthTargets", statistics.uiDepthTargets);
+    PUSH_RENDER_STAT("mrtSets", statistics.uiMrtSets);
+    PUSH_RENDER_STAT("screenSources", statistics.uiScreenSources);
+    PUSH_RENDER_STAT("textureMemoryKB", statistics.iTextureMemoryKB);
+    PUSH_RENDER_STAT("renderTargetMemoryKB", statistics.iRenderTargetMemoryKB);
+    PUSH_RENDER_STAT("fontMemoryKB", statistics.iFontMemoryKB);
+    PUSH_RENDER_STAT("freeMemoryKB", statistics.iFreeMemoryKB);
+#undef PUSH_RENDER_STAT
     return 1;
 }
 
@@ -1265,6 +1445,121 @@ int CLuaDrawingDefs::DxCreateRenderTarget(lua_State* luaVM)
         m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
 
     // error: bad arguments
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+namespace
+{
+    // Deliberately separate from the shared _D3DFORMAT enum (CLuaFunctionParseHelpers.cpp) since
+    // that one lists color formats for dxCreateRenderTarget/dxCreateTexture - these are hardware Z
+    // formats, a different concept, and mixing the two lists would just confuse both call sites.
+    bool StringToDepthStencilFormat(const SString& strFormat, D3DFORMAT& outFormat)
+    {
+        struct SFormatEntry
+        {
+            const char* szName;
+            D3DFORMAT   format;
+        };
+        static const SFormatEntry formatList[] = {
+            {"d24s8", D3DFMT_D24S8}, {"d24x8", D3DFMT_D24X8}, {"d24x4s4", D3DFMT_D24X4S4}, {"d32", D3DFMT_D32}, {"d16", D3DFMT_D16}, {"d15s1", D3DFMT_D15S1},
+        };
+        for (const auto& entry : formatList)
+        {
+            if (strFormat.CompareI(entry.szName))
+            {
+                outFormat = entry.format;
+                return true;
+            }
+        }
+        return false;
+    }
+}  // namespace
+
+int CLuaDrawingDefs::DxCreateDepthStencilTarget(lua_State* luaVM)
+{
+    //  element dxCreateDepthStencilTarget( int sizeX, int sizeY [, string format = "d24s8" [, bool sampleable = false ] ] )
+    CVector2D vecSize;
+    SString   strFormat = "d24s8";
+    bool      bSampleable = false;
+
+    CScriptArgReader argStream(luaVM);
+    argStream.ReadVector2D(vecSize);
+    argStream.ReadString(strFormat, "d24s8");
+    argStream.ReadBool(bSampleable, false);
+
+    D3DFORMAT depthFormat = D3DFMT_D24S8;
+    if (!argStream.HasErrors() && !StringToDepthStencilFormat(strFormat, depthFormat))
+        argStream.SetCustomError(SString("Expected valid depth-stencil format, got '%s'", strFormat.c_str()), "Bad argument");
+
+    if (!argStream.HasErrors())
+    {
+        CLuaMain*  pLuaMain = m_pLuaManager->GetVirtualMachine(luaVM);
+        CResource* pParentResource = pLuaMain ? pLuaMain->GetResource() : NULL;
+        if (pParentResource)
+        {
+            CClientDepthStencilTarget* pDepthStencilTarget = g_pClientGame->GetManager()->GetRenderElementManager()->CreateDepthStencilTarget(
+                (uint)vecSize.fX, (uint)vecSize.fY, (_D3DFORMAT)depthFormat, bSampleable);
+            if (pDepthStencilTarget)
+            {
+                pDepthStencilTarget->SetParent(pParentResource->GetResourceDynamicEntity());
+
+                lua_pushelement(luaVM, pDepthStencilTarget);
+                return 1;
+            }
+        }
+    }
+    else
+        m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+
+    // error: bad arguments, or GPU/format rejected it (see debug log)
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxCreateMrtSet(lua_State* luaVM)
+{
+    //  element dxCreateMrtSet( table renderTargets [, element depthStencilTarget = false ] )
+    std::vector<CClientRenderTarget*> renderTargetList;
+    CClientDepthStencilTarget*        pDepthStencilTarget = NULL;
+
+    CScriptArgReader argStream(luaVM);
+    argStream.ReadUserDataTable(renderTargetList);
+    argStream.ReadUserData<CClientDepthStencilTarget>(pDepthStencilTarget, (CClientDepthStencilTarget*)NULL);
+
+    if (!argStream.HasErrors())
+    {
+        if (renderTargetList.empty())
+            argStream.SetCustomError("renderTargets table must contain at least one render target", "Bad argument");
+        else if (renderTargetList.size() > MAX_MRT_RENDER_TARGETS)
+            argStream.SetCustomError(SString("renderTargets table must contain at most %d render targets", MAX_MRT_RENDER_TARGETS), "Bad argument");
+    }
+
+    if (!argStream.HasErrors())
+    {
+        CLuaMain*  pLuaMain = m_pLuaManager->GetVirtualMachine(luaVM);
+        CResource* pParentResource = pLuaMain ? pLuaMain->GetResource() : NULL;
+        if (pParentResource)
+        {
+            CClientRenderTarget* colorTargets[MAX_MRT_RENDER_TARGETS] = {NULL, NULL, NULL, NULL};
+            for (size_t i = 0; i < renderTargetList.size(); i++)
+                colorTargets[i] = renderTargetList[i];
+
+            CClientMrtSet* pMrtSet =
+                g_pClientGame->GetManager()->GetRenderElementManager()->CreateMrtSet(colorTargets, (uint)renderTargetList.size(), pDepthStencilTarget);
+            if (pMrtSet)
+            {
+                pMrtSet->SetParent(pParentResource->GetResourceDynamicEntity());
+
+                lua_pushelement(luaVM, pMrtSet);
+                return 1;
+            }
+        }
+    }
+    else
+        m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+
+    // error: bad arguments, dimension mismatch, or slot count exceeds this GPU's limit (see debug log)
     lua_pushboolean(luaVM, false);
     return 1;
 }
@@ -1521,6 +1816,67 @@ int CLuaDrawingDefs::DxSetRenderTarget(lua_State* luaVM)
         else
             bResult = g_pCore->GetGraphics()->GetRenderItemManager()->RestoreDefaultRenderTarget();
 
+        lua_pushboolean(luaVM, bResult);
+        return 1;
+    }
+    else
+        m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+
+    // error: bad arguments
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxBeginRenderPass(lua_State* luaVM)
+{
+    //  bool dxBeginRenderPass( element target1 [, element target2, target3, target4] [, element depthStencilTarget] [, bool clear = true] )
+    std::vector<CClientRenderTarget*> renderTargetList;
+    CClientDepthStencilTarget*        pDepthStencilTarget = NULL;
+    bool                              bClear = true;
+
+    CScriptArgReader argStream(luaVM);
+    while (renderTargetList.size() < MAX_MRT_RENDER_TARGETS && argStream.NextIsUserDataOfType<CClientRenderTarget>())
+    {
+        CClientRenderTarget* pRenderTarget = NULL;
+        argStream.ReadUserData(pRenderTarget);
+        renderTargetList.push_back(pRenderTarget);
+    }
+    if (argStream.NextIsUserDataOfType<CClientDepthStencilTarget>())
+        argStream.ReadUserData(pDepthStencilTarget);
+    argStream.ReadBool(bClear, true);
+
+    if (!argStream.HasErrors() && renderTargetList.empty())
+        argStream.SetCustomError("at least one render target is required", "Bad argument");
+
+    if (!argStream.HasErrors())
+    {
+        CRenderTargetItem* colorTargets[MAX_MRT_RENDER_TARGETS] = {NULL, NULL, NULL, NULL};
+        for (size_t i = 0; i < renderTargetList.size(); i++)
+            colorTargets[i] = renderTargetList[i]->GetRenderTargetItem();
+
+        CDepthStencilTargetItem* pDepthStencilTargetItem = pDepthStencilTarget ? pDepthStencilTarget->GetDepthStencilTargetItem() : NULL;
+
+        bool bResult =
+            g_pCore->GetGraphics()->GetRenderItemManager()->BeginRenderPass(colorTargets, (uint)renderTargetList.size(), pDepthStencilTargetItem, bClear);
+        lua_pushboolean(luaVM, bResult);
+        return 1;
+    }
+    else
+        m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+
+    // error: bad arguments
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxEndRenderPass(lua_State* luaVM)
+{
+    //  bool dxEndRenderPass()
+    CScriptArgReader argStream(luaVM);
+
+    if (!argStream.HasErrors())
+    {
+        bool bResult = g_pCore->GetGraphics()->GetRenderItemManager()->EndRenderPass();
         lua_pushboolean(luaVM, bResult);
         return 1;
     }
@@ -1801,6 +2157,101 @@ int CLuaDrawingDefs::DxGetStatus(lua_State* luaVM)
                               return "Default";
                       }
                   }());
+        lua_settable(luaVM, -3);
+
+        return 1;
+    }
+    else
+        m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+
+    // error: bad arguments
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxGetRenderCapabilities(lua_State* luaVM)
+{
+    //  table dxGetRenderCapabilities()
+    //
+    // A separate function from dxGetStatus (rather than added fields on it) so
+    // existing scripts that assume dxGetStatus's table shape are never affected.
+
+    CScriptArgReader argStream(luaVM);
+
+    if (!argStream.HasErrors())
+    {
+        SDxCapabilities dxCaps;
+        g_pCore->GetGraphics()->GetRenderItemManager()->GetDxCapabilities(dxCaps);
+
+        lua_createtable(luaVM, 0, 13);
+
+        lua_pushstring(luaVM, "PixelShader3Supported");
+        lua_pushboolean(luaVM, dxCaps.bPixelShader3Supported);
+        lua_settable(luaVM, -3);
+
+        lua_pushstring(luaVM, "VertexShader3Supported");
+        lua_pushboolean(luaVM, dxCaps.bVertexShader3Supported);
+        lua_settable(luaVM, -3);
+
+        lua_pushstring(luaVM, "MaxSimultaneousRenderTargets");
+        lua_pushnumber(luaVM, dxCaps.iMaxSimultaneousRenderTargets);
+        lua_settable(luaVM, -3);
+
+        lua_pushstring(luaVM, "MaxBoundRenderTargets");
+        lua_pushnumber(luaVM, dxCaps.iMaxBoundRenderTargets);
+        lua_settable(luaVM, -3);
+
+        lua_pushstring(luaVM, "IndependentMRTBlend");
+        lua_pushboolean(luaVM, dxCaps.bIndependentMRTBlend);
+        lua_settable(luaVM, -3);
+
+        lua_pushstring(luaVM, "IndependentMRTWriteMasks");
+        lua_pushboolean(luaVM, dxCaps.bIndependentMRTWriteMasks);
+        lua_settable(luaVM, -3);
+
+        lua_pushstring(luaVM, "DepthTextureSampleFormat");
+        lua_pushstring(luaVM, EnumToString(dxCaps.depthTextureSampleFormat));
+        lua_settable(luaVM, -3);
+
+        lua_pushstring(luaVM, "DepthTextureSamplingSupported");
+        lua_pushboolean(luaVM, dxCaps.bDepthTextureSamplingSupported);
+        lua_settable(luaVM, -3);
+
+        lua_pushstring(luaVM, "CubemapRenderTargetSupported");
+        lua_pushboolean(luaVM, dxCaps.bCubemapRenderTargetSupported);
+        lua_settable(luaVM, -3);
+
+        lua_pushstring(luaVM, "MaxCubemapEdgeLength");
+        lua_pushnumber(luaVM, dxCaps.iMaxCubemapEdgeLength);
+        lua_settable(luaVM, -3);
+
+        lua_pushstring(luaVM, "MaxSceneViewsPerFrame");
+        lua_pushnumber(luaVM, dxCaps.iMaxSceneViewsPerFrame);
+        lua_settable(luaVM, -3);
+
+        lua_pushstring(luaVM, "MaxRenderPassNestingDepth");
+        lua_pushnumber(luaVM, dxCaps.iMaxRenderPassNestingDepth);
+        lua_settable(luaVM, -3);
+
+        lua_pushstring(luaVM, "RenderTargetFormats");
+        lua_createtable(luaVM, 0, static_cast<int>(dxCaps.renderTargetFormats.size()));
+        for (const auto& formatCap : dxCaps.renderTargetFormats)
+        {
+            lua_pushstring(luaVM, formatCap.strFormatName);
+
+            lua_createtable(luaVM, 0, 3);
+            lua_pushstring(luaVM, "renderable");
+            lua_pushboolean(luaVM, formatCap.bRenderable);
+            lua_settable(luaVM, -3);
+            lua_pushstring(luaVM, "textureable");
+            lua_pushboolean(luaVM, formatCap.bTextureable);
+            lua_settable(luaVM, -3);
+            lua_pushstring(luaVM, "filterable");
+            lua_pushboolean(luaVM, formatCap.bFilterable);
+            lua_settable(luaVM, -3);
+
+            lua_settable(luaVM, -3);
+        }
         lua_settable(luaVM, -3);
 
         return 1;

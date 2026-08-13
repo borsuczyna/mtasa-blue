@@ -1,0 +1,174 @@
+# MTA:SA Client — Expanded DX9 Rendering API
+
+## Context
+
+MTA:SA's client `dx*`/`engine*` Lua API currently covers 2D drawing, single shaders applied to world textures, single-target render-to-texture, and a backbuffer-grab "screen source." It has **no** true multi-camera rendering, no Multiple Render Targets, no custom depth-stencil targets, no render-to-cubemap, and no shadow-mapping primitives — confirmed by direct source search (no `SetRenderTarget` call anywhere touches index >0; no mirror/reflection/second-camera precedent exists anywhere in `game_sa`/`multiplayer_sa`).
+
+The goal is to expose a general-enough Direct3D 9 rendering framework that resource authors can build shadow systems, mirrors, security cameras, G-buffers, reflection probes, etc. on top of — without handing Lua raw D3D state, without breaking any existing resource, and without pretending DX9 has capabilities it doesn't. This is designed architecture-first: one scoped state-restoration primitive that every later feature (MRT, custom depth, scene views, cubemaps, shadow cameras) is a client of, not six independent ad-hoc save/restore implementations.
+
+Scope note: an earlier "cloud shadows" idea was replaced with the ability to apply a custom shader to the sky itself, analogous to `engineApplyShaderToWorldTexture`. GTA:SA's sky (`CClouds::RenderSkyPolys`, hooked at `0x714650`) draws untextured, vertex-colored gradient polygons with nothing bound in sampler stage 0, so texture-name matching (how `engineApplyShaderToWorldTexture` actually works) cannot select it — a dedicated sky-draw hook is used instead.
+
+This plan front-loads the *smallest safe foundation* — capability reporting, diagnostics, MRT, custom depth, safe render passes, and **one** independent off-screen world view — before multi-view scheduling or any shadow work.
+
+---
+
+## Architecture (built once, used by everything below)
+
+### A1. `CRenderStateScope` — the one RAII save/apply/restore primitive
+
+New: `Client/core/Graphics/CRenderStateScope.h/.cpp`, alongside `CRenderItemManager`.
+
+```cpp
+class CRenderStateScope
+{
+public:
+    explicit CRenderStateScope(IDirect3DDevice9* pDevice);   // captures current state
+    ~CRenderStateScope();                                     // restores unconditionally
+
+    bool ApplyRenderTargets(const std::array<IDirect3DSurface9*, 4>& targets, IDirect3DSurface9* pDepthStencil);
+    bool ApplyViewport(const D3DVIEWPORT9& vp);
+    bool ApplyCamera(const CCameraSnapshot& cam);   // wraps CCameraSA matrix + active-cam index + FOV/clip
+private:
+    IDirect3DSurface9* m_SavedRT[4];
+    IDirect3DSurface9* m_SavedDepthStencil;
+    D3DVIEWPORT9       m_SavedViewport;
+    CCameraSnapshot    m_SavedCamera;
+};
+```
+
+- Captures render-target slots 0–3, depth-stencil surface, viewport unconditionally on construction; camera state only when `ApplyCamera` is used. Restoration happens in the destructor — unconditional, so it runs even on early-return paths.
+- This is a **stack**, not the existing single global slot: `CRenderItemManager::SaveDefaultRenderTarget()`/`RestoreDefaultRenderTarget()` stays untouched for legacy `dxSetRenderTarget` behavior. `CRenderStateScope` instances nest on the C++ call stack; every new feature (render passes, scene views, cubemap faces, shadow cameras) is **required** to enter/exit exclusively through this class — no feature hand-rolls its own `GetRenderTarget`/`SetRenderTarget` pair.
+
+### A2. Device-loss and resource-stop integration (one place, not per-feature)
+
+- **Device loss**: every new render-item type (typed RT, depth-stencil target, MRT set, scene view, cubemap target) is a `CRenderItem` subclass, so it already participates in the existing `CRenderItemManager::m_CreatedItemList` → `OnLostDevice()`/`OnResetDevice()` fan-out, itself driven by `CGraphics::OnDeviceInvalidate`/`OnDeviceRestore` (`Client/core/Graphics/CGraphics.cpp:1704`/`1737`) ← `CProxyDirect3DDevice9::Reset` (`Client/core/DXHook/CProxyDirect3DDevice9.cpp:837`) → `CDirect3DEvents9::OnInvalidate`/`OnRestore`. No parallel fan-out list is created. `CRenderStateScope` itself is stack-lifetime only and holds no cross-frame D3D resources, so it needs no lost-device handling at all.
+- **Resource-stop**: every new Lua-facing element is a `CClientRenderElement` subclass created with `SetParent(pParentResource->GetResourceDynamicEntity())`, exactly like today's `CClientRenderTarget`/`CClientScreenSource`. `CResource::~CResource()` → `DeleteClientChildren()` already recursively destroys these; destructors release the underlying `CRenderItem` via the existing refcount path. Composite objects (a scene view owning a color target + depth target) hold those as private, non-script-visible `CRenderItem*` refs so they die atomically with the parent.
+- **Memory/queue accounting**: extends `CRenderItemManager::UpdateMemoryUsage()`/`CanCreateRenderItem()` (KB-based gating, `CRenderItemManager.cpp` ~912/960) rather than adding a parallel budget system. New count-based caps (max scene views, max render-pass nesting) are separate fields on the new capabilities struct, enforced at creation/queue time.
+
+### A3. Recursive-render prevention
+
+A single global re-entrancy counter guards the one place that manually re-invokes world rendering (Stage 1 item 13's queued scene-view render loop). It refuses to run re-entrantly, and a queued view cannot itself request further scene views in Stage 1 (request is rejected with an actionable error, not silently dropped). This is the only re-entrancy guard needed anywhere in the plan — render passes (item 12) never re-enter `Render3DStuff`, they only rebind state around ordinary Lua-safe `dx*` drawing calls already issued from `onClientRender`.
+
+---
+
+## Stage 1 — Capability reporting, diagnostics, accounting, MRT, custom depth, render passes, ONE scene view
+
+This is the mandated first milestone (nothing here ships before this stage is stable).
+
+**5. Capability reporting** — new `SDxCapabilities` struct in `Client/sdk/core/CRenderItemManagerInterface.h`, populated once in `CRenderItemManager::OnDeviceCreate` via `GetDeviceCaps`/`CheckDeviceFormat`/`CheckDepthStencilMatch`, reusing the depth-format probing already there (`RFORMAT_INTZ`/`DF24`/`DF16`/`RAWZ`). New Lua function `dxGetRenderCapabilities()` (a **new** function, not appended to `dxGetStatus`'s existing table — zero risk to scripts that assume its current shape), registered in `CLuaDrawingDefs::LoadFunctions()` next to `dxGetStatus` (`CLuaDrawingDefs.cpp` ~line 54). Fields: SM3 support, per-format sampleable/renderable/blendable flags (reusing the `_D3DFORMAT` enum at `CLuaFunctionParseHelpers.cpp:827`), max simultaneous RTs, independent-MRT-blend (honestly reported, near-always false), cubemap-RT support, max scene views, max render-pass nesting. Every later creation function validates against this and returns `false, errorMessage` (matching `dxCreateShader`'s existing convention) instead of silently degrading or crashing.
+
+**6. Shader compile diagnostics** — extends the existing `ID3DXBuffer*` error capture in `CRenderItem.EffectTemplate.cpp`. Add a structured (best-effort parsed) diagnostics table as a **new optional third return value** of `dxCreateShader` on failure/warning (old 2-value call sites unaffected). Add `dxGetShaderDiagnostics(shader)` for technique/pass/parameter introspection.
+
+**6A. Extended shader language/compiler path** — research and then add an opt-in compiler mode without changing the legacy D3DX Effect path used by existing resources. “Loops are unsupported” must first be separated into three cases: loops rejected by the old HLSL/effect parser, loops that compile but exceed Shader Model 2 instruction/flow-control limits, and dynamic loops that require a `vs_3_0`/`ps_3_0` technique. DX9 can execute SM2/SM3 bytecode but cannot gain SM4+ features from a newer parser, so this milestone improves authoring and compilation only within real DX9 limits.
+
+- Preserve the current `dxCreateShader` argument parsing, D3DX flags, technique selection and cache identity as the default `legacy` mode. Existing shader source must compile and select techniques exactly as before.
+- Prefer a final options table over a positional boolean: `dxCreateShader(source, macros, priority, maxDistance, layered, elementTypes, { languageMode = "extended", preferredProfiles = { pixel = "ps_3_0", vertex = "vs_3_0" }, strict = true, warningsAsErrors = false })`. The table is optional and last, so old calls remain source-compatible. Final syntax must follow the repository's argument-parser conventions after overload testing.
+- Probe whether the available redistributable compiler can compile individual `vs_2_0`/`ps_2_0`/`vs_3_0`/`ps_3_0` programs while retaining the existing safe effect abstraction. Do not replace `ID3DXEffect` blindly: if a newer compiler cannot produce a compatible effect object, introduce an internal compiled-program/technique representation or explicitly limit extended mode to syntax preprocessing plus D3DX effect compilation.
+- Extended mode may support bounded `for` loops on SM2 by compile-time unrolling when bounds are constant and validated. Dynamic loops are enabled only for validated SM3 techniques and reported as unsupported on SM2 hardware; they are never silently rewritten into an unbounded CPU/GPU workload.
+- Add controlled includes, macros, source identifiers, line remapping, strict/warnings-as-errors flags, cache keys containing compiler mode/profile/options/include hashes, instruction/register/sampler reporting, and deterministic profile fallback chains. Includes remain resource-root confined by `CIncludeManager`.
+- Capability and diagnostic output reports compiler modes, supported profiles, whether loop unrolling is available, selected profile, fallback reason, and whether the final bytecode used static or dynamic flow control.
+- Security budgets limit source size, include depth/count, macro count, preprocessing expansion, loop-unroll count, compile time where enforceable, shader instruction count, constant registers and samplers. Compilation remains outside unsafe GTA render hooks.
+- Definition of done: legacy shaders are byte-for-byte behavior-compatible; deterministic tests cover a constant SM2 loop, a dynamic SM3 loop, an SM2 fallback technique, excessive/unbounded-loop rejection, compiler errors with correct source lines, device reset, and unsupported-profile errors.
+
+**7. Render statistics** — extend `SDxStatus` additively (never remove/rename existing fields) with per-frame counters (render-pass begins, scene-view renders, MRT binds, pass nesting depth). New `dxGetRenderStatistics()`. Counters live in a small new `CRenderStatsCollector`; when nothing new is called they stay at zero — no added per-frame cost.
+
+**8. Automatic shader value bindings** — opt-in annotation on D3DX effects (e.g. `string mtaSemantic = "ViewProjectionMatrix";`) resolved once at `CShaderItem` construction into fixed `D3DXHANDLE`s, refreshed in the existing `CShaderInstance::ApplyShaderParameters()` path. Shaders without annotations are byte-for-byte unaffected. No raw matrix/state is ever handed to Lua directly — only through this mechanism or existing `dxSetShaderValue`.
+
+**9. Typed render targets** — `dxCreateRenderTarget`'s signature is unchanged; add `CheckDeviceFormat` validation before `CreateTexture` so an unsupported format fails with an actionable message instead of silently misbehaving. Extend the format enum only for genuinely missing entries, each capability-gated.
+
+**10. Custom depth-stencil targets** — new `Client/core/Graphics/CRenderItem.DepthStencilTarget.cpp` (`CDepthStencilTargetItem : public CRenderItem`), wrapping `CreateDepthStencilSurface`, in either a non-sampleable hardware Z format or (only when capability-confirmed) a sampleable fourCC format. New `Client/mods/deathmatch/logic/CClientDepthStencilTarget.h/.cpp` (mirrors `CClientRenderTarget`). Lua: `dxCreateDepthStencilTarget(sizeX, sizeY [, format])`. Requesting `sampleable=true` on unsupported hardware fails explicitly — never silently returns a non-sampleable surface while claiming success. Distinct from the existing primary-scene "readable depth buffer" mechanism (`PreDrawWorld`/`SaveReadableDepthBuffer`), which is untouched.
+
+**11. MRT binding + validation** — new `CMrtSetItem : public CRenderItem` holding up to 4 `CRenderTargetItem*` (slot 0 mandatory) + optional depth target. Validates equal dimensions across slots and slot count against capability limits at bind time, not per-frame. Lua: `dxCreateMrtSet(table renderTargets [, depthStencilTarget])`.
+
+**12. Safe scoped render passes** — `dxBeginRenderPass(target [, target2, target3, target4] [, depthStencilTarget] [, clear=true])` / `dxEndRenderPass()`, generalizing the existing `dxSetRenderTarget` begin/restore pattern scripts already know. Each `dxBeginRenderPass` pushes a `CRenderStateScope` and validates via the MRT rules above even for a single target; nesting bounded by capability. Runs entirely on the already-safe Lua call stack (from `onClientRender` etc.) — never re-enters GTA/RenderWare internals. If a resource is stopped mid-open-pass, the element destructor force-closes the scope rather than leaving dangling bindings (explicitly tested in Stage 6).
+
+**13. ONE independent off-screen scene view** — the actual multi-camera proof of concept.
+- New `CSceneViewItem : public CRenderItem`, self-contained: owns one internal color target + one internal depth target + a camera snapshot + a queued flag.
+- Lua: `dxCreateSceneView(sizeX, sizeY [, colorFormat])`, `dxSetSceneViewCamera(view, camX,camY,camZ, lookX,lookY,lookZ [, fov] [, nearClip, farClip])` (mirrors `setCameraMatrix`'s shape), `dxRequestSceneViewRender(view)` (enqueues only — idempotent per frame, rejected with an actionable error once the Stage-1 cap of **1** view/frame is exceeded), `dxGetSceneViewTexture(view)` (returns a normal texture usable by `dxDrawImage`/`dxSetShaderValue`).
+- **Queue consumption point**: `CClientGame::PreRenderSkyHandler()` (`CClientGame.cpp:3918`, currently just calls `PreDrawWorld()`) is extended to run the queued-view render loop immediately after, and strictly before GTA's own `Render3DStuff` executes for the primary camera. Chosen over `PostWorldProcessHandler` because it fires *before* the primary render has advanced any per-frame GTA state (LOD fades, particle timers) — a secondary camera rendered here sees the same pre-mutation world state the primary camera is about to see, not state already stepped forward by it.
+- **Per-view render procedure**, wrapped in one `CRenderStateScope`: re-entrancy check → apply view's render targets/viewport → snapshot and overwrite the active `CCameraSAInterface` via `CCameraSA`/`CClientCamera` → manually invoke the real GTA `Render3DStuff` function directly by its known address (`0x53DF40`, the same function MTA already hooks in `CMultiplayerSA.cpp:3518`) — **not** through the hooked entry point, to avoid recursively re-triggering MTA's own staged-handler chain → scope destructor restores everything → dequeue.
+- **Definition of done**: a script positions a second camera anywhere in the world, requests one render per frame, and draws the result via `dxDrawImage`, while the primary on-screen view stays pixel-identical to a build where the scene view is unused.
+
+**14. Camera/state restoration validation** — no new production code; a dedicated verification pass (see Verification section) confirming zero measurable primary-camera drift over many frames with a scene view active, including across a device-loss/reset with a non-empty queue (queue must be safely dropped, never rendered against a torn-down device).
+
+**Stage 1 zero-cost confirmation**: when unused, `PreRenderSkyHandler` runs one empty-queue check, `CRenderStateScope` is never constructed, no new `CRenderItem` is ever created, and all new counters stay at zero.
+
+---
+
+## Sky shaders (independent of the shadow work; ships alongside Stage 1)
+
+A resource can assign a `dxShader` to replace how the sky itself is drawn, the same conceptual shape as `engineApplyShaderToWorldTexture` but for the sky.
+
+- Verified: `CClouds::RenderSkyPolys` (hooked at `Client/multiplayer_sa/CMultiplayerSA_Rendering.cpp:607-633`, `HOOKPOS_CClouds_RenderSkyPolys = 0x714650`) draws untextured vertex-colored polygons — the existing texture-name-match mechanism has nothing to bind to, so it cannot be reused as-is.
+- The existing hook is an unconditional inline patch (`pushad; call OnMY_CClouds_RenderSkyPolys; popad; jmp 0x714655`) that always falls through into GTA's original sky-drawing code afterward — it has no way to *suppress* the original draw today.
+- Design: convert this single hook site into a conditional trampoline (same technique already used elsewhere in this codebase for call-based hooks, e.g. `Render3DStuff`): if a resource has assigned a sky shader (via new `engineApplyShaderToSky(shader)`), skip the call into GTA's original `RenderSkyPolys` body and instead have MTA draw its own sky geometry using that shader's technique; otherwise fall through to GTA's original code exactly as today. Requires locating `RenderSkyPolys`'s exit point (implementation-time disassembly task) so the conditional skip lands correctly.
+- Feed the replacement draw the automatic-value bindings from Stage 1 item 8 relevant to sky rendering: sun direction, moon direction, horizon/sky ambient colors already tracked by MTA's existing weather/time system, camera view/projection.
+- `engineRemoveShaderFromSky()` restores default rendering. Ownership/cleanup follows the same `SetParent`-based pattern as every other shader-application function.
+- **Definition of done**: a resource can replace the sky's rendering with a custom shader driven by real sun/time/weather values, and removing the shader restores GTA's exact default sky with no artifacts.
+
+---
+
+## Stage 2 — Multiple scheduled scene views
+
+Raise the Stage-1 cap of 1 view/frame to a capability-reported, GPU-tier-dependent max, still hard-enforced. Add per-view update modes (`always`, `once`, `onDemand`, `every_n_frames`). Add per-view GPU-time accounting (new small `CGpuQueryManager` using `IDirect3DQuery9`, following the same lost/reset-device pattern as everything else) and an explicit, signaled (never silent) budget-exceeded rejection. Reuses Stage 1 item 13's exact per-view render procedure — this stage is scheduling/limits around it, not a new rendering mechanism. Done when N views (N = capability max) render simultaneously with correct independent restoration, re-validated per item 14's test at N>1.
+
+## Stage 3 — Cubemap render targets
+
+New `CCubemapRenderTargetItem` wrapping `IDirect3DCubeTexture9` (cube textures already exist as a texture *type* in the engine, `TTYPE_CUBETEXTURE`, just not yet as a render target). Rendering a face reuses the scene-view render procedure unchanged, called once per face with a 90° FOV camera per fixed orientation, targeting `GetCubeMapSurface(face, 0)`. Lua: `dxCreateCubemapRenderTarget(edgeSize)`, `dxSetCubemapRenderTargetCamera(view, x,y,z)`, `dxRequestCubemapRenderTargetRender(view [, faceMask])` (partial per-frame face updates for budget control). Gated on Stage 1's cubemap capability flags. Done when a reflection-probe demo samples a live cubemap with correct per-face orientation and no primary-camera drift.
+
+## Stage 4 — Shadow-mapping primitives (gated on Stage 1 being stable in real use)
+
+1. **Shadow-map camera** — a `CSceneViewItem` variant with orthographic/frustum-fit projection and depth-only rendering (color writes off, only the depth target populated). Reuses items 10 and 13 entirely.
+2. **Sun-direction shadow example** — wires a shadow-map camera to the existing sun vector, samples it in a world-texture shader via `engineApplyShaderToWorldTexture` using item 8's automatic light-space matrix.
+3. **Cascaded shadow prototype (optional, explicitly last)** — N shadow cameras via Stage 2's scheduling, cascade-split selection in example shader code. Not enabled by default. Only attempted once 4.1–4.2 are proven.
+
+Capability-gated throughout: if the GPU can't sample depth (item 5's flag), shadow mapping is refused with an actionable error — never faked via a color-encoded depth pass pretending to be native.
+
+## Stage 5 — Debug/demo Lua resources
+
+One resource per subsystem: capabilities viewer, shader-diagnostics viewer, render-stats HUD, MRT demo, custom-depth demo, render-pass demo, single/multi scene-view demo, cubemap reflection demo, sky-shader demo, sun-shadow demo, cascaded-shadow demo (if built). No new C++ — thin, independently-toggleable Lua scripts, each documenting the exact API surface it exercises.
+
+## Stage 6 — Regression, performance, documentation
+
+- **Regression**: existing `dx*` resources run unmodified; `dxGetStatus`'s key set diffed to be byte-identical (catches accidental breakage of the untouched legacy API).
+- **Stress**: max views × max MRT targets × nested passes × rapid create/destroy churn; device-loss injected mid-scene-view-render; resource-stop mid-open-pass.
+- **Zero-cost-when-idle evidence**: frame-time comparison of an existing large resource, untouched, against pre-change baseline.
+- **Documentation**: full Lua reference (signatures, capability preconditions, error returns) plus a DX9-limitations appendix.
+
+---
+
+## Explicit DX9 boundaries (not attempted)
+
+No compute/geometry/tessellation shaders (DX9/SM3 has none). No guaranteed independent per-MRT blend state — reported via a capability flag, never emulated. No guaranteed sampleable depth — only the known vendor fourCC formats; absence is reported, never faked. No guaranteed SM3 — capability-gated with SM2 fallback for automatic values. No GPU-driven/compute-based cascade selection — cascades (if built) are CPU-side and optional. No raw `IDirect3DDevice9*`/format handles ever cross into Lua.
+
+## Rejected / deferred approaches
+
+- **Emulating MRT via repeated single-target passes**: rejected as default behavior — silently multiplies draw cost and breaks assumed single-pass blending; true MRT is used where supported, unsupported hardware gets an explicit error, not an automatic cost-hiding fallback.
+- **Cascaded shadows first**: rejected per explicit instruction — highest-complexity, most failure-prone feature, deferred until Stage 1 and Stage 2 are proven.
+- **Raw D3D state/handles in Lua**: rejected — everything goes through `CRenderStateScope`; Lua only ever sees element handles and declarative parameters.
+- **Arbitrary Lua callbacks inside GTA/RenderWare internals**: rejected — replaced by the queue-and-render-at-a-controlled-point model, so no Lua code ever executes on the GTA render call stack.
+- **A second, parallel GPU-memory budget system**: rejected — extends `CRenderItemManager`'s existing KB accounting; only adds count-based caps where the KB model can't naturally express a limit.
+- **Cloud-shadow world-space projection** (original request item): dropped in favor of the sky-shader hook above.
+
+## Critical files
+
+- `Client/core/Graphics/CRenderItemManager.h/.cpp` — capability struct, `CanCreateRenderItem`/`UpdateMemoryUsage`, `PreDrawWorld`, `OnLostDevice`/`OnResetDevice` fan-out target for every new item type.
+- `Client/sdk/core/CRenderItemManagerInterface.h` — new `eRenderItemClassTypes` entries, `SDxStatus`/`SDxCapabilities` fields, new interface virtuals.
+- `Client/mods/deathmatch/logic/luadefs/CLuaDrawingDefs.cpp/.h` — new `dx*` registrations, following `DxCreateRenderTarget`/`DxGetStatus` exactly.
+- `Client/mods/deathmatch/logic/CClientGame.cpp` (`PreRenderSkyHandler`, line 3918) — scene-view queue consumption point.
+- `Client/multiplayer_sa/CMultiplayerSA_Rendering.cpp` (lines 607-633, `HOOKPOS_CClouds_RenderSkyPolys`) — sky-shader trampoline conversion point.
+- `Client/core/Graphics/CGraphics.cpp` (`OnDeviceInvalidate`/`OnDeviceRestore`, lines 1704/1737) — mandatory registration point for every new item manager's lost/reset handling.
+- `Client/mods/deathmatch/logic/CClientRenderElement.h`, `CClientRenderElementManager.h/.cpp` — base pattern every new script-facing element must follow for ownership/cleanup.
+- `Client/core/DXHook/CProxyDirect3DDevice9.cpp` (`Reset`, line 837), `CDirect3DEvents9.cpp` (`OnInvalidate`/`OnRestore`, lines 509/564) — device-loss lifecycle everything must integrate with.
+
+## Verification
+
+Because this is engine/native code with no existing automated D3D test harness in this repo, verification is staged:
+
+1. **Build**: existing build must still succeed unmodified after each stage lands (no existing `dx*` Lua function signature changes).
+2. **Regression-in-game**: load an existing resource that uses `dxCreateRenderTarget`/`dxCreateShader`/`dxCreateScreenSource`/`engineApplyShaderToWorldTexture` unmodified; confirm pixel-identical behavior and no new console warnings.
+3. **Stage 1 acceptance test** (in-game, manual + a purpose-built debug resource per Stage 5): create a scene view, position a second camera, request a render every frame, draw the result texture on-screen via `dxDrawImage`, and visually confirm (a) the secondary view shows the correct independent camera angle, (b) the primary on-screen view is unaffected frame-to-frame, (c) `dxGetRenderStatistics()`/`dxGetRenderCapabilities()` report sane values.
+4. **Device-loss test**: trigger alt-tab / resolution change while a scene view, MRT set, and render pass are all in use; confirm no crash, no leak, and correct re-creation.
+5. **Resource-stop test**: stop a resource mid-open-render-pass and mid-queued-scene-view-render; confirm no dangling bound render target/depth surface.
+6. **Sky shader test**: assign and remove a sky shader repeatedly across a day/night and weather-change cycle; confirm default sky is bit-for-bit restored when removed.
+7. Each later stage repeats the applicable subset of 3–5 at its own scale (multiple views, cubemap faces, shadow maps) before being marked `done` in `docs/shader-api-upgrade-progress.md`.

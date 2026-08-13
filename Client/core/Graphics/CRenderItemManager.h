@@ -9,6 +9,8 @@
  *
  *****************************************************************************/
 
+class CRenderStateScope;
+
 //
 // CRenderItemManager
 //
@@ -22,17 +24,25 @@ public:
     ~CRenderItemManager();
 
     // CRenderItemManagerInterface
-    virtual void                DoPulse();
-    virtual CDxFontItem*        CreateDxFont(const SString& strFullFilePath, uint uiSize, bool bBold, DWORD ulQuality = DEFAULT_QUALITY);
-    virtual CGuiFontItem*       CreateGuiFont(const SString& strFullFilePath, const SString& strFontName, uint uiSize);
-    virtual CTextureItem*       CreateTexture(const SString& strFullFilePath, const CPixels* pPixels, bool bMipMaps = true, uint uiSizeX = RDEFAULT,
-                                              uint uiSizeY = RDEFAULT, ERenderFormat format = RFORMAT_UNKNOWN, ETextureAddress textureAddress = TADDRESS_WRAP,
-                                              ETextureType textureType = TTYPE_TEXTURE, uint uiVolumeDepth = 1);
-    virtual CShaderItem*        CreateShader(const SString& strFile, const SString& strRootPath, bool bIsRawData, SString& strOutStatus, float fPriority,
-                                             float fMaxDistance, bool bLayered, bool bDebug, int iTypeMask, const EffectMacroList& macros);
-    virtual CRenderTargetItem*  CreateRenderTarget(uint uiSizeX, uint uiSizeY, bool bHasSurfaceFormat, bool bWithAlphaChannel, int surfaceFormat,
-                                                   bool bForce = false);
-    virtual CScreenSourceItem*  CreateScreenSource(uint uiSizeX, uint uiSizeY);
+    virtual void               DoPulse();
+    virtual CDxFontItem*       CreateDxFont(const SString& strFullFilePath, uint uiSize, bool bBold, DWORD ulQuality = DEFAULT_QUALITY);
+    virtual CGuiFontItem*      CreateGuiFont(const SString& strFullFilePath, const SString& strFontName, uint uiSize);
+    virtual CTextureItem*      CreateTexture(const SString& strFullFilePath, const CPixels* pPixels, bool bMipMaps = true, uint uiSizeX = RDEFAULT,
+                                             uint uiSizeY = RDEFAULT, ERenderFormat format = RFORMAT_UNKNOWN, ETextureAddress textureAddress = TADDRESS_WRAP,
+                                             ETextureType textureType = TTYPE_TEXTURE, uint uiVolumeDepth = 1);
+    virtual CShaderItem*       CreateShader(const SString& strFile, const SString& strRootPath, bool bIsRawData, SString& strOutStatus, float fPriority,
+                                            float fMaxDistance, bool bLayered, bool bDebug, int iTypeMask, const EffectMacroList& macros);
+    virtual CRenderTargetItem* CreateRenderTarget(uint uiSizeX, uint uiSizeY, bool bHasSurfaceFormat, bool bWithAlphaChannel, int surfaceFormat,
+                                                  bool bForce = false);
+    virtual CDepthStencilTargetItem* CreateDepthStencilTarget(uint uiSizeX, uint uiSizeY, int surfaceFormat, bool bSampleable);
+    virtual CMrtSetItem*             CreateMrtSet(CRenderTargetItem* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets,
+                                                  CDepthStencilTargetItem* pDepthStencilTargetItem);
+    virtual CScreenSourceItem*       CreateScreenSource(uint uiSizeX, uint uiSizeY);
+    virtual bool BeginRenderPass(CRenderTargetItem* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets, CDepthStencilTargetItem* pDepthStencilTargetItem,
+                                 bool bClear);
+    virtual bool EndRenderPass();
+    virtual uint GetRenderPassDepth() { return (uint)m_RenderPassStack.size(); }
+    virtual void ForceCloseAllRenderPasses();
     virtual CVectorGraphicItem* CreateVectorGraphic(uint width, uint height);
     virtual CWebBrowserItem*    CreateWebBrowser(uint uiSizeX, uint uiSizeY);
     virtual bool                SetRenderTarget(CRenderTargetItem* pItem, bool bClear);
@@ -50,6 +60,9 @@ public:
     virtual eDxTestMode    GetTestMode() { return m_TestMode; }
     virtual void           SetTestMode(eDxTestMode testMode);
     virtual void           GetDxStatus(SDxStatus& outStatus);
+    virtual void           GetDxCapabilities(SDxCapabilities& outCapabilities);
+    virtual void           GetShaderDiagnostics(CShaderItem* pShaderItem, SShaderDiagnostics& outDiagnostics);
+    virtual void           GetRenderStatistics(SRenderStatistics& outStatistics);
     virtual CEffectCloner* GetEffectCloner() { return m_pEffectCloner; }
     virtual void           PreDrawWorld();
     virtual void           SetDepthBufferFormat(ERenderFormat depthBufferFormat) { m_depthBufferFormat = depthBufferFormat; }
@@ -129,4 +142,12 @@ protected:
     uint                     m_uiRenderTargetRetryDelayMs;
     uint                     m_uiRenderTargetRetryAttempts;
     uint                     m_uiRenderTargetRetryCooldownUntil;
+
+    // Stack of open dxBeginRenderPass/dxEndRenderPass scopes (innermost/most-recent last).
+    // Force-closed defensively in OnPresent (in case a script forgets dxEndRenderPass) and in
+    // OnLostDevice (the D3D surfaces a scope would try to restore are about to be released).
+    std::vector<CRenderStateScope*> m_RenderPassStack;
+    uint                            m_uiRenderPassesStarted;
+    uint                            m_uiRenderPassFailures;
+    uint                            m_uiForcedRenderPassClosures;
 };

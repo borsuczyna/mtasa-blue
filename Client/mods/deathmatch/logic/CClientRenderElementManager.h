@@ -15,6 +15,8 @@ class CClientGuiFont;
 class CClientTexture;
 class CClientShader;
 class CClientRenderTarget;
+class CClientDepthStencilTarget;
+class CClientMrtSet;
 class CClientScreenSource;
 class CClientWebBrowser;
 class CClientVectorGraphic;
@@ -33,6 +35,8 @@ public:
     CClientShader* CreateShader(const SString& strFile, const SString& strRootPath, bool bIsRawData, SString& strOutStatus, float fPriority, float fMaxDistance,
                                 bool bLayered, bool bDebug, int iTypeMask, const EffectMacroList& macros);
     CClientRenderTarget*  CreateRenderTarget(uint uiSizeX, uint uiSizeY, bool bHasSurfaceFormat, bool bWithAlphaChannel, _D3DFORMAT surfaceFormat);
+    CClientDepthStencilTarget* CreateDepthStencilTarget(uint uiSizeX, uint uiSizeY, _D3DFORMAT surfaceFormat, bool bSampleable);
+    CClientMrtSet* CreateMrtSet(CClientRenderTarget* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets, CClientDepthStencilTarget* pDepthStencilTarget);
     CClientScreenSource*  CreateScreenSource(uint uiSizeX, uint uiSizeY);
     CClientWebBrowser*    CreateWebBrowser(uint uiSizeX, uint uiSizeY, bool bIsLocal, bool bTransparent);
     CClientVectorGraphic* CreateVectorGraphic(uint width, uint height);
@@ -44,6 +48,8 @@ public:
     uint GetTextureCount() { return m_uiStatsTextureCount; }
     uint GetShaderCount() { return m_uiStatsShaderCount; }
     uint GetRenderTargetCount() { return m_uiStatsRenderTargetCount; }
+    uint GetDepthStencilTargetCount() { return m_uiStatsDepthStencilTargetCount; }
+    uint GetMrtSetCount() { return m_uiStatsMrtSetCount; }
     uint GetScreenSourceCount() { return m_uiStatsScreenSourceCount; }
     uint GetWebBrowserCount() { return m_uiStatsWebBrowserCount; }
     uint GetVectorGraphicCount() { return m_uiStatsVectorGraphicCount; }
@@ -58,6 +64,8 @@ protected:
     uint                                          m_uiStatsTextureCount;
     uint                                          m_uiStatsShaderCount;
     uint                                          m_uiStatsRenderTargetCount;
+    uint                                          m_uiStatsDepthStencilTargetCount;
+    uint                                          m_uiStatsMrtSetCount;
     uint                                          m_uiStatsScreenSourceCount;
     uint                                          m_uiStatsWebBrowserCount;
     uint                                          m_uiStatsVectorGraphicCount;

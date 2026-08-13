@@ -86,6 +86,8 @@
 #include <CClientWater.h>
 #include <CClientWeapon.h>
 #include <CClientRenderElement.h>
+#include <CClientDepthStencilTarget.h>
+#include <CClientMrtSet.h>
 #include <CClientDxFont.h>
 #include <CClientGuiFont.h>
 #include <CClientMaterial.h>
