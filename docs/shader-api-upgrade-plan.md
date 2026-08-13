@@ -111,7 +111,7 @@ A resource can assign a `dxShader` to replace how the sky itself is drawn, the s
 
 ## Stage 2 — Multiple scheduled scene views
 
-Raise the Stage-1 cap of 1 view/frame to a capability-reported, GPU-tier-dependent max, still hard-enforced. Add per-view update modes (`always`, `once`, `onDemand`, `every_n_frames`). Add per-view GPU-time accounting (new small `CGpuQueryManager` using `IDirect3DQuery9`, following the same lost/reset-device pattern as everything else) and an explicit, signaled (never silent) budget-exceeded rejection. Reuses Stage 1 item 13's exact per-view render procedure — this stage is scheduling/limits around it, not a new rendering mechanism. Done when N views (N = capability max) render simultaneously with correct independent restoration, re-validated per item 14's test at N>1.
+Raise the Stage-1 cap of 1 view/frame to a capability-reported, GPU-tier-dependent max, still hard-enforced. Add `dxSetSceneViewUpdateMode(view, mode [, value])` with `manual` (the backward-compatible default used with `dxRequestSceneViewRender`), `once`, `always`, `every_n_frames`, and millisecond `interval` modes. Add per-view GPU-time accounting (new small `CGpuQueryManager` using `IDirect3DQuery9`, following the same lost/reset-device pattern as everything else) and an explicit, signaled (never silent) budget-exceeded rejection. Reuses Stage 1 item 13's exact per-view render procedure — this stage is scheduling/limits around it, not a new rendering mechanism. Done when N views (N = capability max) render simultaneously with correct independent restoration, re-validated per item 14's test at N>1.
 
 ### Per-view shader isolation and output processing
 

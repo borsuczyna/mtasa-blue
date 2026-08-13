@@ -64,6 +64,7 @@ public:
     LUA_DECLARE(DxCreateSceneView);
     LUA_DECLARE(DxSetSceneViewCamera);
     LUA_DECLARE(DxRequestSceneViewRender);
+    LUA_DECLARE(DxSetSceneViewUpdateMode);
     LUA_DECLARE(DxGetSceneViewTexture);
     LUA_DECLARE(DxGetSceneViewInfo);
     LUA_DECLARE(DxCreateScreenSource);

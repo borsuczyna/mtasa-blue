@@ -71,6 +71,7 @@ protected:
     uint                                          m_uiStatsDepthStencilTargetCount;
     uint                                          m_uiStatsMrtSetCount;
     uint                                          m_uiStatsSceneViewCount;
+    uint                                          m_uiSceneViewSchedulerFrame = 0;
     std::set<CClientSceneView*>                   m_SceneViews;
     uint                                          m_uiStatsScreenSourceCount;
     uint                                          m_uiStatsWebBrowserCount;

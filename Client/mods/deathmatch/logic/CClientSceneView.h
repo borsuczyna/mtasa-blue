@@ -10,6 +10,15 @@
 // A scene view is itself a drawable render-target texture. Its private depth
 // surface is never exposed as a texture, preventing scripts from claiming
 // sampleable depth when the device only supplied a regular depth surface.
+enum class ESceneViewUpdateMode
+{
+    MANUAL,
+    ONCE,
+    ALWAYS,
+    EVERY_N_FRAMES,
+    INTERVAL,
+};
+
 class CClientSceneView : public CClientRenderTarget
 {
     DECLARE_CLASS(CClientSceneView, CClientRenderTarget)
@@ -47,11 +56,57 @@ public:
         return true;
     }
 
+    void SetUpdateMode(ESceneViewUpdateMode mode, uint uiValue)
+    {
+        m_UpdateMode = mode;
+        m_uiUpdateValue = uiValue;
+        if (mode == ESceneViewUpdateMode::ONCE)
+            m_bRenderRequested = true;
+    }
+
+    bool ShouldRender(uint uiFrame, uint uiTickCount)
+    {
+        if (!m_bCameraConfigured)
+            return false;
+
+        // Explicit requests always take precedence over throttling, preserving dxRequestSceneViewRender's
+        // legacy Stage-1 behavior even when a periodic mode is configured.
+        if (ConsumeRenderRequest())
+            return true;
+
+        switch (m_UpdateMode)
+        {
+            case ESceneViewUpdateMode::ALWAYS:
+                return true;
+            case ESceneViewUpdateMode::EVERY_N_FRAMES:
+                return m_uiRenderCount == 0 || uiFrame - m_uiLastRenderFrame >= m_uiUpdateValue;
+            case ESceneViewUpdateMode::INTERVAL:
+                return m_uiRenderCount == 0 || uiTickCount - m_uiLastRenderTick >= m_uiUpdateValue;
+            default:
+                return false;
+        }
+    }
+
+    void OnRenderCompleted(bool bSucceeded, uint uiFrame, uint uiTickCount)
+    {
+        m_bLastRenderSucceeded = bSucceeded;
+        m_uiLastRenderFrame = uiFrame;
+        m_uiLastRenderTick = uiTickCount;
+        ++m_uiRenderCount;
+        if (m_UpdateMode == ESceneViewUpdateMode::ONCE)
+            m_UpdateMode = ESceneViewUpdateMode::MANUAL;
+    }
+
     const CMatrix&           GetCameraMatrix() const { return m_CameraMatrix; }
     float                    GetFOV() const { return m_fFOV; }
     CDepthStencilTargetItem* GetDepthStencilTargetItem() const { return m_pDepthStencilTargetItem; }
     void                     SetLastRenderSucceeded(bool bSucceeded) { m_bLastRenderSucceeded = bSucceeded; }
     bool                     DidLastRenderSucceed() const { return m_bLastRenderSucceeded; }
+    ESceneViewUpdateMode     GetUpdateMode() const { return m_UpdateMode; }
+    uint                     GetUpdateValue() const { return m_uiUpdateValue; }
+    uint                     GetRenderCount() const { return m_uiRenderCount; }
+    uint                     GetLastRenderFrame() const { return m_uiLastRenderFrame; }
+    uint                     GetLastRenderTick() const { return m_uiLastRenderTick; }
 
 private:
     CDepthStencilTargetItem* m_pDepthStencilTargetItem;
@@ -60,4 +115,9 @@ private:
     bool                     m_bRenderRequested;
     bool                     m_bLastRenderSucceeded;
     bool                     m_bCameraConfigured = false;
+    ESceneViewUpdateMode     m_UpdateMode = ESceneViewUpdateMode::MANUAL;
+    uint                     m_uiUpdateValue = 0;
+    uint                     m_uiRenderCount = 0;
+    uint                     m_uiLastRenderFrame = 0;
+    uint                     m_uiLastRenderTick = 0;
 };

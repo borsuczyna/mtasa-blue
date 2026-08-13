@@ -287,24 +287,26 @@ bool CClientRenderElementManager::RenderRequestedSceneView()
     // Consume requests before entering each native world pass. Lua cannot run from this loop, and the
     // multiplayer recursion guard rejects any accidental nested render. The hard capability limit bounds
     // both scene count and worst-case world renders per frame.
-    uint uiRenderedViews = 0;
-    bool bAnyRendered = false;
+    uint       uiRenderedViews = 0;
+    bool       bAnyRendered = false;
+    const uint uiFrame = ++m_uiSceneViewSchedulerFrame;
+    const uint uiTickCount = GetTickCount32();
     for (CClientSceneView* pSceneView : m_SceneViews)
     {
         if (uiRenderedViews >= MAX_SCENE_VIEWS_PER_FRAME)
             break;
-        if (!pSceneView->ConsumeRenderRequest())
+        if (!pSceneView->ShouldRender(uiFrame, uiTickCount))
             continue;
 
         const bool bBegan = m_pRenderItemManager->BeginSceneViewRender(pSceneView->GetRenderTargetItem(), pSceneView->GetDepthStencilTargetItem(),
-                                                                       pSceneView->GetCameraMatrix(), pSceneView->GetFOV(), true);
+                                                                       pSceneView->GetCameraMatrix(), pSceneView->GetFOV(), false);
         bool       bRendered = false;
         if (bBegan)
         {
             bRendered = g_pMultiplayer->RenderSecondaryScene();
             m_pRenderItemManager->EndRenderPass();
         }
-        pSceneView->SetLastRenderSucceeded(bRendered);
+        pSceneView->OnRenderCompleted(bRendered, uiFrame, uiTickCount);
         bAnyRendered |= bRendered;
         ++uiRenderedViews;
     }

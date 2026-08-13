@@ -51,6 +51,7 @@ void CLuaDrawingDefs::LoadFunctions()
         {"dxCreateSceneView", DxCreateSceneView},
         {"dxSetSceneViewCamera", DxSetSceneViewCamera},
         {"dxRequestSceneViewRender", DxRequestSceneViewRender},
+        {"dxSetSceneViewUpdateMode", DxSetSceneViewUpdateMode},
         {"dxGetSceneViewTexture", DxGetSceneViewTexture},
         {"dxGetSceneViewInfo", DxGetSceneViewInfo},
         {"dxCreateScreenSource", DxCreateScreenSource},
@@ -197,6 +198,7 @@ void CLuaDrawingDefs::AddDxSceneViewClass(lua_State* luaVM)
     lua_classfunction(luaVM, "create", "dxCreateSceneView");
     lua_classfunction(luaVM, "setCamera", "dxSetSceneViewCamera");
     lua_classfunction(luaVM, "requestRender", "dxRequestSceneViewRender");
+    lua_classfunction(luaVM, "setUpdateMode", "dxSetSceneViewUpdateMode");
     lua_classfunction(luaVM, "getTexture", "dxGetSceneViewTexture");
     lua_classfunction(luaVM, "getInfo", "dxGetSceneViewInfo");
     lua_registerclass(luaVM, "DxSceneView", "DxRenderTarget");
@@ -1681,6 +1683,50 @@ int CLuaDrawingDefs::DxRequestSceneViewRender(lua_State* luaVM)
     return 1;
 }
 
+int CLuaDrawingDefs::DxSetSceneViewUpdateMode(lua_State* luaVM)
+{
+    CClientSceneView* pSceneView = nullptr;
+    SString           strMode;
+    uint              uiValue = 0;
+    CScriptArgReader  argStream(luaVM);
+    argStream.ReadUserData(pSceneView);
+    argStream.ReadString(strMode);
+    argStream.ReadNumber(uiValue, 0);
+
+    ESceneViewUpdateMode mode = ESceneViewUpdateMode::MANUAL;
+    if (!argStream.HasErrors())
+    {
+        if (strMode == "manual")
+            mode = ESceneViewUpdateMode::MANUAL;
+        else if (strMode == "once")
+            mode = ESceneViewUpdateMode::ONCE;
+        else if (strMode == "always")
+            mode = ESceneViewUpdateMode::ALWAYS;
+        else if (strMode == "every_n_frames")
+            mode = ESceneViewUpdateMode::EVERY_N_FRAMES;
+        else if (strMode == "interval")
+            mode = ESceneViewUpdateMode::INTERVAL;
+        else
+            argStream.SetCustomError("update mode must be manual, once, always, every_n_frames or interval", "Bad argument");
+    }
+
+    if (!argStream.HasErrors() && mode == ESceneViewUpdateMode::EVERY_N_FRAMES && (uiValue < 1 || uiValue > 10000))
+        argStream.SetCustomError("every_n_frames value must be between 1 and 10000", "Bad argument");
+    if (!argStream.HasErrors() && mode == ESceneViewUpdateMode::INTERVAL && (uiValue < 16 || uiValue > 60000))
+        argStream.SetCustomError("interval value must be between 16 and 60000 milliseconds", "Bad argument");
+
+    if (!argStream.HasErrors())
+    {
+        pSceneView->SetUpdateMode(mode, uiValue);
+        lua_pushboolean(luaVM, true);
+        return 1;
+    }
+
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
 int CLuaDrawingDefs::DxGetSceneViewTexture(lua_State* luaVM)
 {
     CClientSceneView* pSceneView = nullptr;
@@ -1706,7 +1752,7 @@ int CLuaDrawingDefs::DxGetSceneViewInfo(lua_State* luaVM)
     if (!argStream.HasErrors())
     {
         CRenderTargetItem* pTarget = pSceneView->GetRenderTargetItem();
-        lua_createtable(luaVM, 0, 5);
+        lua_createtable(luaVM, 0, 10);
 #define PUSH_SCENE_VIEW_FIELD(Name, PushCall) \
     lua_pushstring(luaVM, Name); \
     PushCall; \
@@ -1716,6 +1762,29 @@ int CLuaDrawingDefs::DxGetSceneViewInfo(lua_State* luaVM)
         PUSH_SCENE_VIEW_FIELD("fov", lua_pushnumber(luaVM, pSceneView->GetFOV()));
         PUSH_SCENE_VIEW_FIELD("renderRequested", lua_pushboolean(luaVM, pSceneView->IsRenderRequested()));
         PUSH_SCENE_VIEW_FIELD("lastRenderSucceeded", lua_pushboolean(luaVM, pSceneView->DidLastRenderSucceed()));
+        const char* szUpdateMode = "manual";
+        switch (pSceneView->GetUpdateMode())
+        {
+            case ESceneViewUpdateMode::ONCE:
+                szUpdateMode = "once";
+                break;
+            case ESceneViewUpdateMode::ALWAYS:
+                szUpdateMode = "always";
+                break;
+            case ESceneViewUpdateMode::EVERY_N_FRAMES:
+                szUpdateMode = "every_n_frames";
+                break;
+            case ESceneViewUpdateMode::INTERVAL:
+                szUpdateMode = "interval";
+                break;
+            default:
+                break;
+        }
+        PUSH_SCENE_VIEW_FIELD("updateMode", lua_pushstring(luaVM, szUpdateMode));
+        PUSH_SCENE_VIEW_FIELD("updateValue", lua_pushnumber(luaVM, pSceneView->GetUpdateValue()));
+        PUSH_SCENE_VIEW_FIELD("renderCount", lua_pushnumber(luaVM, pSceneView->GetRenderCount()));
+        PUSH_SCENE_VIEW_FIELD("lastRenderFrame", lua_pushnumber(luaVM, pSceneView->GetLastRenderFrame()));
+        PUSH_SCENE_VIEW_FIELD("lastRenderTick", lua_pushnumber(luaVM, pSceneView->GetLastRenderTick()));
 #undef PUSH_SCENE_VIEW_FIELD
         return 1;
     }
