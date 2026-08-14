@@ -19,6 +19,9 @@
 #include "CRemoteDataSA.h"
 
 class CRemoteDataSA;
+struct IDirect3DDevice9;
+struct IDirect3DTexture9;
+struct IDirect3DSurface9;
 #define DEFAULT_NEAR_CLIP_DISTANCE (0.3f)
 #define DEFAULT_SHADOWS_OFFSET     (0.013f)  // GTA default = 0.06f
 
@@ -389,6 +392,14 @@ private:
     UINT      m_uiSecondarySceneRasterWidth{};
     UINT      m_uiSecondarySceneRasterHeight{};
     SString   m_strLastSecondarySceneRenderError;
+
+    // Private D3D9-only scratch copy of the SceneView's own colour raster, used solely to reproduce
+    // CPostEffects::ColourFilter's per-frame tint (see ApplySecondarySceneColourFilter). Never shared with
+    // GTA's own CPostEffects::pRasterFrontBuffer, which is sized/UV'd for the primary screen only.
+    IDirect3DTexture9* m_pSecondaryScenePostFxTexture{};
+    IDirect3DSurface9* m_pSecondaryScenePostFxSurface{};
+
+    void ApplySecondarySceneColourFilter(IDirect3DDevice9* pDevice, IDirect3DSurface9* pColorSurface, UINT uiWidth, UINT uiHeight);
 
     std::vector<char>   m_PlayerImgCache;
     EFastClothesLoading m_FastClothesLoading;

@@ -89,6 +89,17 @@ DWORD RETURN_CollisionStreamRead = 0x41B1D6;
 #define VAR_MirrorsRenderingReflection       0xC7C728
 #define VAR_Scene                            0xC17038
 
+// CTimeCycle::m_CurrentColours (a CColourSet), the already-interpolated per-frame colour data for the
+// current weather+hour. No SDK accessor exposes PostFx1/PostFx2, so these are read directly at their
+// plugin-sdk-verified byte offsets within CColourSet (float m_fPostFx1Red/Green/Blue/Alpha then
+// m_fPostFx2Red/Green/Blue/Alpha, 16 bytes each group). See ApplySecondarySceneColourFilter below.
+#define VAR_TimeCycleCurrentColours 0xB7C4A0
+#define OFFSET_ColourSet_PostFx1    120
+#define OFFSET_ColourSet_PostFx2    136
+// CPostEffects::m_bColorEnable - gates ColourFilter() inside the primary frame's RenderEffects(). Mirrored
+// so SceneViews stay in parity even when a script/ini has this turned off.
+#define VAR_PostEffectsColorEnable 0x8D518C
+
 // The native per-frame sequence calls RenderScene() (FUNC_Render3DStuff above) then, still inside the same
 // RwCameraBeginUpdate/EndUpdate bracket, a second and entirely distinct function that draws particles,
 // coronas, road-light glow (CPointLights::RenderFogEffect), skidmarks, ropes, glass, moving-things and
@@ -3099,6 +3110,15 @@ bool CMultiplayerSA::RenderSecondaryScene()
         // the same frame can therefore composite the preceding camera into this target and drain data that
         // the primary view still owns. Individual effect categories can be enabled later only after their
         // queues and camera inputs have dedicated SceneView scopes.
+        //
+        // One RenderEffects() stage is reproduced in isolation, however: CPostEffects::Render() ends with
+        // ColourFilter(), a per-frame full-screen tint blended from CTimeCycle's current PostFx1/PostFx2
+        // colours. RenderScene() alone never draws it, so every independently-rendered view was consistently
+        // duller/flatter than the primary camera regardless of lighting, camera position or vertex prelight -
+        // a screen-space grading pass the primary frame always receives and SceneViews never did. Unlike the
+        // rest of RenderEffects, this reads only global per-frame colour data (no queues) and writes only to
+        // this view's own still-active target, so it carries none of the leak risk above.
+        ApplySecondarySceneColourFilter(pDevice, pSecondaryColorSurface, finalDesc.Width, finalDesc.Height);
 
         RwCameraEndUpdate(pRwCamera);
         cameraRasters.m_bUpdateActive = false;
@@ -3167,6 +3187,133 @@ bool CMultiplayerSA::RenderSecondaryScene()
     return bRendered;
 }
 
+////////////////////////////////////////////////////////////////
+//
+// CMultiplayerSA::ApplySecondarySceneColourFilter
+//
+// Reproduces CPostEffects::ColourFilter's per-frame screen-space tint for an independently-rendered
+// SceneView. GTA's own ColourFilter (0x703650) always blends against a shared raster
+// (CPostEffects::pRasterFrontBuffer) whose quad geometry/UVs are baked, at setup or screen-resize time
+// only, to the PRIMARY screen's raster dimensions and near-clip plane - reusing it directly would misdraw
+// for a SceneView of any other size, and resizing the shared raster here would corrupt the primary frame's
+// own later colour-filter pass. This instead captures this view's own just-rendered colour target into a
+// private scratch texture and reproduces the same two-pass additive tint against it, entirely isolated
+// from GTA's globals - it never touches pRasterFrontBuffer, cc_vertices, or the per-frame smoothing state
+// (s_ExtraMult) CPostEffects::Render() also updates, so it cannot desync the primary frame's own pass.
+//
+////////////////////////////////////////////////////////////////
+void CMultiplayerSA::ApplySecondarySceneColourFilter(IDirect3DDevice9* pDevice, IDirect3DSurface9* pColorSurface, UINT uiWidth, UINT uiHeight)
+{
+    if (!pDevice || !pColorSurface || !uiWidth || !uiHeight)
+        return;
+
+    if (!*reinterpret_cast<bool*>(VAR_PostEffectsColorEnable))
+        return;
+
+    D3DSURFACE_DESC scratchDesc{};
+    const bool      bHaveScratch = m_pSecondaryScenePostFxSurface && SUCCEEDED(m_pSecondaryScenePostFxSurface->GetDesc(&scratchDesc));
+    if (!bHaveScratch || scratchDesc.Width != uiWidth || scratchDesc.Height != uiHeight)
+    {
+        SAFE_RELEASE(m_pSecondaryScenePostFxSurface);
+        SAFE_RELEASE(m_pSecondaryScenePostFxTexture);
+
+        D3DSURFACE_DESC colorDesc{};
+        if (FAILED(pColorSurface->GetDesc(&colorDesc)))
+            return;
+        if (FAILED(pDevice->CreateTexture(colorDesc.Width, colorDesc.Height, 1, D3DUSAGE_RENDERTARGET, colorDesc.Format, D3DPOOL_DEFAULT,
+                                          &m_pSecondaryScenePostFxTexture, nullptr)) ||
+            FAILED(m_pSecondaryScenePostFxTexture->GetSurfaceLevel(0, &m_pSecondaryScenePostFxSurface)))
+        {
+            SAFE_RELEASE(m_pSecondaryScenePostFxSurface);
+            SAFE_RELEASE(m_pSecondaryScenePostFxTexture);
+            return;
+        }
+    }
+
+    // CTimeCycle::m_CurrentColours' PostFx floats are not range-clamped by the game itself (see
+    // OFFSET_ColourSet_PostFx1/2 above) - clamp before the float->BYTE narrowing below to avoid undefined
+    // behaviour on an out-of-range timecycle value, matching the intent of GTA's own truncating cast.
+    const BYTE* pColours = reinterpret_cast<const BYTE*>(VAR_TimeCycleCurrentColours);
+    const auto  readChannel = [pColours](int iOffset) -> BYTE
+    {
+        const float fValue = *reinterpret_cast<const float*>(pColours + iOffset);
+        return static_cast<BYTE>(std::max(0.0f, std::min(255.0f, fValue)));
+    };
+
+    const D3DCOLOR pass1 = D3DCOLOR_ARGB(readChannel(OFFSET_ColourSet_PostFx1 + 12), readChannel(OFFSET_ColourSet_PostFx1 + 0),
+                                         readChannel(OFFSET_ColourSet_PostFx1 + 4), readChannel(OFFSET_ColourSet_PostFx1 + 8));
+    const D3DCOLOR pass2 = D3DCOLOR_ARGB(readChannel(OFFSET_ColourSet_PostFx2 + 12), readChannel(OFFSET_ColourSet_PostFx2 + 0),
+                                         readChannel(OFFSET_ColourSet_PostFx2 + 4), readChannel(OFFSET_ColourSet_PostFx2 + 8));
+
+    if (!(pass1 & 0xFF000000) && !(pass2 & 0xFF000000))
+        return;  // both passes fully transparent this frame - nothing would change
+
+    if (FAILED(pDevice->StretchRect(pColorSurface, nullptr, m_pSecondaryScenePostFxSurface, nullptr, D3DTEXF_NONE)))
+        return;
+
+    struct SPostFxVertex
+    {
+        float    x, y, z, rhw;
+        D3DCOLOR diffuse;
+        float    u, v;
+    };
+    constexpr DWORD FVF = D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1;
+
+    const float fWidth = static_cast<float>(uiWidth);
+    const float fHeight = static_cast<float>(uiHeight);
+
+    // Scoped exactly like CRenderItemManager's own SwiftShader StretchRect-emulation draw: capture every
+    // device state first, restore it verbatim afterwards, so RenderWare's parallel fixed-function state
+    // cache (which this raw draw deliberately bypasses) is never left believing a stale value.
+    IDirect3DStateBlock9* pSavedState = nullptr;
+    pDevice->CreateStateBlock(D3DSBT_ALL, &pSavedState);
+
+    pDevice->SetFVF(FVF);
+    pDevice->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
+    pDevice->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    pDevice->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    pDevice->SetRenderState(D3DRS_LIGHTING, FALSE);
+    pDevice->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    pDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    pDevice->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    pDevice->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+    pDevice->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    pDevice->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    pDevice->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    pDevice->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
+    pDevice->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+    pDevice->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    pDevice->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    pDevice->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+    pDevice->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    pDevice->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    pDevice->SetTexture(0, m_pSecondaryScenePostFxTexture);
+
+    const auto DrawTintPass = [&](D3DCOLOR colour)
+    {
+        if (!(colour & 0xFF000000))
+            return;  // fully transparent - matches native ColourFilter still issuing an inert draw, skipped here as a no-op
+        const SPostFxVertex vertices[] = {
+            {-0.5f, -0.5f, 0.0f, 1.0f, colour, 0.0f, 0.0f},
+            {fWidth - 0.5f, -0.5f, 0.0f, 1.0f, colour, 1.0f, 0.0f},
+            {-0.5f, fHeight - 0.5f, 0.0f, 1.0f, colour, 0.0f, 1.0f},
+            {fWidth - 0.5f, -0.5f, 0.0f, 1.0f, colour, 1.0f, 0.0f},
+            {fWidth - 0.5f, fHeight - 0.5f, 0.0f, 1.0f, colour, 1.0f, 1.0f},
+            {-0.5f, fHeight - 0.5f, 0.0f, 1.0f, colour, 0.0f, 1.0f},
+        };
+        pDevice->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, vertices, sizeof(SPostFxVertex));
+    };
+
+    DrawTintPass(pass1);
+    DrawTintPass(pass2);
+
+    if (pSavedState)
+    {
+        pSavedState->Apply();
+        SAFE_RELEASE(pSavedState);
+    }
+}
+
 void CMultiplayerSA::ReleaseSecondarySceneResources()
 {
     // RenderWare owns the wrapped D3D9 textures, so destruction must go through RW rather than releasing
@@ -3187,6 +3334,9 @@ void CMultiplayerSA::ReleaseSecondarySceneResources()
         RwFrameDestroy(m_pSecondarySceneCameraFrame);
     if (m_pSecondarySceneCamera)
         reinterpret_cast<int(__cdecl*)(RwCamera*)>(FUNC_RwCameraDestroy)(m_pSecondarySceneCamera);
+
+    SAFE_RELEASE(m_pSecondaryScenePostFxSurface);
+    SAFE_RELEASE(m_pSecondaryScenePostFxTexture);
 
     m_pSecondarySceneCamera = nullptr;
     m_pSecondarySceneCameraFrame = nullptr;
