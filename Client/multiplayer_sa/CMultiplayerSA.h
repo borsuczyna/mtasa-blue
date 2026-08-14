@@ -280,6 +280,7 @@ public:
     void           SetPreRenderSkyHandler(PreRenderSkyHandler* pHandler);
     void           SetPreConstructRenderListHandler(PreConstructRenderListHandler* pHandler) override;
     void           SetSceneViewProjection(bool bOrthographic, float fWidth, float fHeight, float fNearClip, float fFarClip) override;
+    void           SetSceneViewSquarePerspective(bool bEnable) override;
     bool           RenderSecondaryScene() override;
     const SString& GetLastSecondarySceneRenderError() const override { return m_strLastSecondarySceneRenderError; }
     void           ReleaseSecondarySceneResources() override;
@@ -411,6 +412,9 @@ private:
     float m_fSecondarySceneOrthoHeight{};
     float m_fSecondarySceneOrthoNearClip{};
     float m_fSecondarySceneOrthoFarClip{};
+    // Set by SetSceneViewSquarePerspective, consumed the same way. Only meaningful while
+    // m_bSecondarySceneOrthographic is false - see RenderSecondaryScene's projection override block.
+    bool m_bSecondarySceneSquarePerspective{};
 
     std::vector<char>   m_PlayerImgCache;
     EFastClothesLoading m_FastClothesLoading;

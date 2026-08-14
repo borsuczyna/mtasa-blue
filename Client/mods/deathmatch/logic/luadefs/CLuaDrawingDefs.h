@@ -74,6 +74,11 @@ public:
     LUA_DECLARE(DxRemoveSceneViewOutputShader);
     LUA_DECLARE(DxGetSceneViewTexture);
     LUA_DECLARE(DxGetSceneViewInfo);
+    LUA_DECLARE(DxCreateCubemapRenderTarget);
+    LUA_DECLARE(DxSetCubemapRenderTargetCamera);
+    LUA_DECLARE(DxRequestCubemapRenderTargetRender);
+    LUA_DECLARE(DxGetCubemapRenderTargetTexture);
+    LUA_DECLARE(DxGetCubemapRenderTargetInfo);
     LUA_DECLARE(DxCreateScreenSource);
     LUA_DECLARE(DxGetMaterialSize);
     LUA_DECLARE(DxSetShaderValue);
@@ -115,4 +120,5 @@ private:
     static void AddDxDepthStencilTargetClass(lua_State* luaVM);
     static void AddDxMrtSetClass(lua_State* luaVM);
     static void AddDxSceneViewClass(lua_State* luaVM);
+    static void AddDxCubemapRenderTargetClass(lua_State* luaVM);
 };

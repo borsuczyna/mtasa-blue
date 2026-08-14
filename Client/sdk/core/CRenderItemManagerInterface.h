@@ -30,6 +30,7 @@ class CShaderItem;
 class CShaderInstance;
 class CRenderTargetItem;
 class CDepthStencilTargetItem;
+class CCubemapRenderTargetItem;
 class CMrtSetItem;
 class CScreenSourceItem;
 class CWebBrowserItem;
@@ -179,7 +180,7 @@ struct SDxCapabilities
     bool bCubemapRenderTargetSupported = false;
     int  iMaxCubemapEdgeLength = 0;
 
-    int iMaxSceneViewsPerFrame = 0;      // Current stage's fixed cap (raised as multi-view scheduling lands)
+    int iMaxSceneViewsPerFrame = -1;     // -1 = no fixed engine-side cap; bounded only by device/performance
     int iMaxRenderPassNestingDepth = 0;  // Fixed cap
 
     struct SFormatCapability
@@ -191,10 +192,6 @@ struct SDxCapabilities
     };
     std::vector<SFormatCapability> renderTargetFormats;
 };
-
-// Stage-2 scheduler limit. Keep one shared value for capability reporting, element creation and frame
-// execution so scripts cannot create work the native scheduler would leave queued indefinitely.
-constexpr int MAX_SCENE_VIEWS_PER_FRAME = 2;
 
 // A Lua-safe snapshot of D3DX effect metadata. It intentionally contains only
 // copied strings/numbers, never D3DX handles or device pointers, so diagnostics
@@ -278,17 +275,24 @@ public:
                                             float fMaxDistance, bool bLayered, bool bDebug, int iTypeMask, const EffectMacroList& macros) = 0;
     virtual CRenderTargetItem* CreateRenderTarget(uint uiSizeX, uint uiSizeY, bool bHasSurfaceFormat, bool bWithAlphaChannel, int surfaceFormat,
                                                   bool bForce = false) = 0;
-    virtual CDepthStencilTargetItem* CreateDepthStencilTarget(uint uiSizeX, uint uiSizeY, int surfaceFormat, bool bSampleable) = 0;
-    virtual CMrtSetItem*             CreateMrtSet(CRenderTargetItem* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets,
-                                                  CDepthStencilTargetItem* pDepthStencilTargetItem) = 0;
-    virtual CScreenSourceItem*       CreateScreenSource(uint uiSizeX, uint uiSizeY) = 0;
+    virtual CDepthStencilTargetItem*  CreateDepthStencilTarget(uint uiSizeX, uint uiSizeY, int surfaceFormat, bool bSampleable) = 0;
+    virtual CCubemapRenderTargetItem* CreateCubemapRenderTarget(uint uiEdgeSize, int surfaceFormat) = 0;
+    virtual CMrtSetItem*              CreateMrtSet(CRenderTargetItem* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets,
+                                                   CDepthStencilTargetItem* pDepthStencilTargetItem) = 0;
+    virtual CScreenSourceItem*        CreateScreenSource(uint uiSizeX, uint uiSizeY) = 0;
     virtual bool BeginRenderPass(CRenderTargetItem* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets, CDepthStencilTargetItem* pDepthStencilTargetItem,
                                  bool bClear) = 0;
     virtual bool BeginSceneViewRender(CRenderTargetItem* pTarget, CDepthStencilTargetItem* pDepthStencilTargetItem, const CMatrix& cameraMatrix, float fFOV,
                                       bool bClear) = 0;
-    virtual bool EndRenderPass() = 0;
-    virtual uint GetRenderPassDepth() = 0;
-    virtual void ForceCloseAllRenderPasses() = 0;
+    // Cube faces reuse the same CRenderStateScope-backed pass mechanism as BeginSceneViewRender/BeginRenderPass,
+    // but bind a raw D3D9 surface (one face of the cube texture, plus a depth-stencil shared across all 6 faces
+    // since they render sequentially, never simultaneously) instead of going through a CRenderTargetItem. FOV is
+    // always exactly 90 degrees against the cubemap's square edge size, the only configuration that tiles
+    // seamlessly across all 6 faces - callers do not choose it.
+    virtual bool                BeginCubemapFaceRender(CCubemapRenderTargetItem* pCubemap, uint uiFace, const CMatrix& cameraMatrix, bool bClear) = 0;
+    virtual bool                EndRenderPass() = 0;
+    virtual uint                GetRenderPassDepth() = 0;
+    virtual void                ForceCloseAllRenderPasses() = 0;
     virtual CWebBrowserItem*    CreateWebBrowser(uint uiSizeX, uint uiSizeY) = 0;
     virtual CVectorGraphicItem* CreateVectorGraphic(uint uiSizeX, uint uiSizeY) = 0;
     virtual bool                SetRenderTarget(CRenderTargetItem* pItem, bool bClear) = 0;
@@ -378,6 +382,7 @@ enum eRenderItemClassTypes
     CLASS_CFileTextureItem,
     CLASS_CRenderTargetItem,
     CLASS_CDepthStencilTargetItem,
+    CLASS_CCubemapRenderTargetItem,
     CLASS_CMrtSetItem,
     CLASS_CScreenSourceItem,
     CLASS_CWebBrowserItem,
@@ -703,6 +708,37 @@ class CDepthStencilTargetItem : public CRenderItem
     IDirect3DSurface9* m_pD3DDepthStencilSurface;
     uint               m_uiLastEnsureAttempt;
     uint               m_uiEnsureDelayMs;
+};
+
+////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////
+//
+// CCubemapRenderTargetItem - A render-to-cubemap target. Wraps an IDirect3DCubeTexture9 (cube textures
+// already exist as a texture *type* in the engine, TTYPE_CUBETEXTURE, just not yet as a render target)
+// plus one cached render-target surface per face and a single depth-stencil surface shared across all 6
+// faces - they are always rendered sequentially within one BeginCubemapFaceRender/EndRenderPass pair each,
+// never simultaneously, so one shared depth buffer is sufficient and saves 5/6 of the depth memory a
+// separate surface per face would cost.
+//
+// Face indices match D3DCUBEMAP_FACES (0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z), each rendered from the same
+// fixed probe position with a 90-degree FOV - the only configuration where all 6 faces tile seamlessly.
+//
+class CCubemapRenderTargetItem : public CTextureItem
+{
+    DECLARE_CLASS(CCubemapRenderTargetItem, CTextureItem)
+    CCubemapRenderTargetItem() : ClassInit(this) {}
+    virtual void PostConstruct(CRenderItemManager* pManager, uint uiEdgeSize, int surfaceFormat);
+    virtual void PreDestruct();
+    virtual bool IsValid();
+    virtual void OnLostDevice();
+    virtual void OnResetDevice();
+    void         CreateUnderlyingData();
+    void         ReleaseUnderlyingData();
+
+    uint               m_uiEdgeSize;
+    int                m_eSurfaceFormat;
+    IDirect3DSurface9* m_pD3DFaceSurface[6];
+    IDirect3DSurface9* m_pD3DDepthStencilSurface;
 };
 
 ////////////////////////////////////////////////////////////////

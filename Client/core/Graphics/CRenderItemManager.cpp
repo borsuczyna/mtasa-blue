@@ -354,6 +354,72 @@ CDepthStencilTargetItem* CRenderItemManager::CreateDepthStencilTarget(uint uiSiz
 
 ////////////////////////////////////////////////////////////////
 //
+// CRenderItemManager::CreateCubemapRenderTarget
+//
+// Capability-gated on Stage 1's bCubemapRenderTargetSupported/iMaxCubemapEdgeLength (populated from
+// D3DPTEXTURECAPS_CUBEMAP/MaxTextureWidth in GetDxCapabilities) - rejected outright rather than attempting
+// creation and failing with a driver-specific error on hardware that never supported it.
+//
+////////////////////////////////////////////////////////////////
+CCubemapRenderTargetItem* CRenderItemManager::CreateCubemapRenderTarget(uint uiEdgeSize, int surfaceFormat)
+{
+    if (!CanCreateRenderItem(CCubemapRenderTargetItem::GetClassId()))
+        return nullptr;
+
+    SDxCapabilities capabilities;
+    GetDxCapabilities(capabilities);
+    if (!capabilities.bCubemapRenderTargetSupported)
+    {
+        WriteDebugEvent("CreateCubemapRenderTarget - cubemap render targets are not supported on this GPU");
+        return nullptr;
+    }
+    if (uiEdgeSize == 0 || (int)uiEdgeSize > capabilities.iMaxCubemapEdgeLength)
+    {
+        WriteDebugEvent(SString("CreateCubemapRenderTarget - edge size must be between 1 and %d on this GPU", capabilities.iMaxCubemapEdgeLength));
+        return nullptr;
+    }
+
+    // Reject a format the device can't actually render a cube face to, rather than letting
+    // CreateCubeTexture's retry loop burn through several failed attempts and return an unexplained nullptr.
+    if (m_pDevice)
+    {
+        IDirect3D9* pD3D = nullptr;
+        m_pDevice->GetDirect3D(&pD3D);
+        if (pD3D)
+        {
+            D3DDISPLAYMODE displayMode;
+            if (pD3D->GetAdapterDisplayMode(D3DADAPTER_DEFAULT, &displayMode) == D3D_OK)
+            {
+                HRESULT hrFormatCheck = pD3D->CheckDeviceFormat(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, displayMode.Format, D3DUSAGE_RENDERTARGET,
+                                                                D3DRTYPE_CUBETEXTURE, (D3DFORMAT)surfaceFormat);
+                if (hrFormatCheck != D3D_OK)
+                {
+                    WriteDebugEvent(SString("CreateCubemapRenderTarget - Format %d is not supported as a cubemap render target on this GPU (0x%08x)",
+                                            surfaceFormat, hrFormatCheck));
+                    SAFE_RELEASE(pD3D);
+                    return nullptr;
+                }
+            }
+        }
+        SAFE_RELEASE(pD3D);
+    }
+
+    CCubemapRenderTargetItem* pCubemapItem = new CCubemapRenderTargetItem();
+    pCubemapItem->PostConstruct(this, uiEdgeSize, surfaceFormat);
+
+    if (!pCubemapItem->IsValid())
+    {
+        SAFE_RELEASE(pCubemapItem);
+        return nullptr;
+    }
+
+    UpdateMemoryUsage();
+
+    return pCubemapItem;
+}
+
+////////////////////////////////////////////////////////////////
+//
 // CRenderItemManager::CreateMrtSet
 //
 // Validates target count against the device's actual NumSimultaneousRTs and
@@ -542,6 +608,66 @@ bool CRenderItemManager::BeginSceneViewRender(CRenderTargetItem* pTarget, CDepth
     // GTA's pre-lit meshes. IDirect3DStateBlock9::Apply bypasses both that cache and MTA's device proxy, making
     // the next SceneView/primary render incorrectly skip state changes. Native world passes therefore leave
     // draw state owned by RenderWare while this scope still restores all attachment and camera state.
+    m_RenderPassStack.back()->DiscardSavedDrawState();
+    return true;
+}
+
+////////////////////////////////////////////////////////////////
+//
+// CRenderItemManager::BeginCubemapFaceRender
+//
+////////////////////////////////////////////////////////////////
+bool CRenderItemManager::BeginCubemapFaceRender(CCubemapRenderTargetItem* pCubemap, uint uiFace, const CMatrix& cameraMatrix, bool bClear)
+{
+    if (!pCubemap || !pCubemap->IsValid() || uiFace >= 6)
+    {
+        ++m_uiRenderPassFailures;
+        WriteDebugEvent("BeginCubemapFaceRender - invalid cubemap or face index");
+        return false;
+    }
+
+    const size_t kMaxRenderPassNestingDepth = 4;
+    if (m_RenderPassStack.size() >= kMaxRenderPassNestingDepth)
+    {
+        ++m_uiRenderPassFailures;
+        WriteDebugEvent("BeginCubemapFaceRender - maximum render pass nesting depth exceeded");
+        return false;
+    }
+
+    if (GetDeviceCooperativeLevel("BeginCubemapFaceRender") != D3D_OK)
+    {
+        ++m_uiRenderPassFailures;
+        return false;
+    }
+
+    IDirect3DSurface9* d3dTargets[MAX_MRT_RENDER_TARGETS] = {pCubemap->m_pD3DFaceSurface[uiFace], nullptr, nullptr, nullptr};
+
+    CRenderStateScope* pScope = new CRenderStateScope(m_pDevice);
+    if (!pScope->ApplyRenderTargets(d3dTargets, pCubemap->m_pD3DDepthStencilSurface, pCubemap->m_uiEdgeSize, pCubemap->m_uiEdgeSize))
+    {
+        ++m_uiRenderPassFailures;
+        delete pScope;
+        WriteDebugEvent("BeginCubemapFaceRender - failed to apply render targets");
+        return false;
+    }
+
+    if (bClear)
+    {
+        m_pDevice->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, D3DCOLOR_ARGB(0, 0, 0, 0), 1.0f, 0);
+    }
+
+    m_RenderPassStack.push_back(pScope);
+    ++m_uiRenderPassesStarted;
+
+    // 90 degrees is not a configurable parameter - it is the only FOV where a square target's 6 faces tile
+    // seamlessly into a full sphere. Camera restoration belongs to the same scope as target/depth/viewport
+    // restoration, exactly like BeginSceneViewRender above.
+    if (!m_RenderPassStack.back()->ApplyCamera(cameraMatrix, 90.0f))
+    {
+        EndRenderPass();
+        return false;
+    }
+
     m_RenderPassStack.back()->DiscardSavedDrawState();
     return true;
 }
@@ -1516,10 +1642,10 @@ void CRenderItemManager::GetDxCapabilities(SDxCapabilities& outCapabilities)
     outCapabilities.bCubemapRenderTargetSupported = (caps.TextureCaps & D3DPTEXTURECAPS_CUBEMAP) != 0;
     outCapabilities.iMaxCubemapEdgeLength = outCapabilities.bCubemapRenderTargetSupported ? (int)caps.MaxTextureWidth : 0;
 
-    // Keep the first multi-view scheduler deliberately small. Two views are enough to prove that GTA's
-    // visibility queues and camera state are rebuilt/restored between passes without exposing an
-    // unbounded extra-world-render cost to resources.
-    outCapabilities.iMaxSceneViewsPerFrame = MAX_SCENE_VIEWS_PER_FRAME;
+    // No fixed engine-side cap on concurrent/per-frame SceneViews or cubemap face renders - each is a full
+    // secondary world pass, so cost scales directly with how many a script actually requests. -1 signals
+    // "not artificially limited" rather than reporting a specific number that would suggest a real ceiling.
+    outCapabilities.iMaxSceneViewsPerFrame = -1;
     outCapabilities.iMaxRenderPassNestingDepth = 4;
 
     // Reuse the readable-depth-format discovery already performed once at device

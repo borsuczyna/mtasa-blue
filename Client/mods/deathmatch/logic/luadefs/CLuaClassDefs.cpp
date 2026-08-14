@@ -388,6 +388,8 @@ const char* CLuaClassDefs::GetEntityClass(CClientEntity* pEntity)
             return "DxMrtSet";
         case CCLIENTSCENEVIEW:
             return "DxSceneView";
+        case CCLIENTCUBEMAPRENDERTARGET:
+            return "DxCubemapRenderTarget";
         case CCLIENTBROWSER:
             return "Browser";
     }

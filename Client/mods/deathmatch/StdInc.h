@@ -93,6 +93,7 @@
 #include <CClientMaterial.h>
 #include <CClientTexture.h>
 #include <CClientSceneView.h>
+#include <CClientCubemapRenderTarget.h>
 #include <CClientShader.h>
 #include <CClientWebBrowser.h>
 #include <CClientSearchLight.h>

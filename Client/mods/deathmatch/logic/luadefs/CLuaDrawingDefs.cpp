@@ -61,6 +61,11 @@ void CLuaDrawingDefs::LoadFunctions()
         {"dxRemoveSceneViewOutputShader", DxRemoveSceneViewOutputShader},
         {"dxGetSceneViewTexture", DxGetSceneViewTexture},
         {"dxGetSceneViewInfo", DxGetSceneViewInfo},
+        {"dxCreateCubemapRenderTarget", DxCreateCubemapRenderTarget},
+        {"dxSetCubemapRenderTargetCamera", DxSetCubemapRenderTargetCamera},
+        {"dxRequestCubemapRenderTargetRender", DxRequestCubemapRenderTargetRender},
+        {"dxGetCubemapRenderTargetTexture", DxGetCubemapRenderTargetTexture},
+        {"dxGetCubemapRenderTargetInfo", DxGetCubemapRenderTargetInfo},
         {"dxCreateScreenSource", DxCreateScreenSource},
         {"dxGetMaterialSize", DxGetMaterialSize},
         {"dxSetShaderValue", DxSetShaderValue},
@@ -103,6 +108,7 @@ void CLuaDrawingDefs::AddClass(lua_State* luaVM)
     AddDxDepthStencilTargetClass(luaVM);
     AddDxMrtSetClass(luaVM);
     AddDxSceneViewClass(luaVM);
+    AddDxCubemapRenderTargetClass(luaVM);
 }
 
 void CLuaDrawingDefs::AddDxMaterialClass(lua_State* luaVM)
@@ -207,6 +213,8 @@ void CLuaDrawingDefs::AddDxSceneViewClass(lua_State* luaVM)
     lua_classfunction(luaVM, "create", "dxCreateSceneView");
     lua_classfunction(luaVM, "setCamera", "dxSetSceneViewCamera");
     lua_classfunction(luaVM, "setMatrix", "dxSetSceneViewMatrix");
+    lua_classfunction(luaVM, "setOrthographicProjection", "dxSetSceneViewOrthographicProjection");
+    lua_classfunction(luaVM, "setPerspectiveProjection", "dxSetSceneViewPerspectiveProjection");
     lua_classfunction(luaVM, "requestRender", "dxRequestSceneViewRender");
     lua_classfunction(luaVM, "setUpdateMode", "dxSetSceneViewUpdateMode");
     lua_classfunction(luaVM, "setOutputShader", "dxSetSceneViewOutputShader");
@@ -214,6 +222,17 @@ void CLuaDrawingDefs::AddDxSceneViewClass(lua_State* luaVM)
     lua_classfunction(luaVM, "getTexture", "dxGetSceneViewTexture");
     lua_classfunction(luaVM, "getInfo", "dxGetSceneViewInfo");
     lua_registerclass(luaVM, "DxSceneView", "DxRenderTarget");
+}
+
+void CLuaDrawingDefs::AddDxCubemapRenderTargetClass(lua_State* luaVM)
+{
+    lua_newclass(luaVM);
+    lua_classfunction(luaVM, "create", "dxCreateCubemapRenderTarget");
+    lua_classfunction(luaVM, "setCamera", "dxSetCubemapRenderTargetCamera");
+    lua_classfunction(luaVM, "requestRender", "dxRequestCubemapRenderTargetRender");
+    lua_classfunction(luaVM, "getTexture", "dxGetCubemapRenderTargetTexture");
+    lua_classfunction(luaVM, "getInfo", "dxGetCubemapRenderTargetInfo");
+    lua_registerclass(luaVM, "DxCubemapRenderTarget", "DxTexture");
 }
 
 int CLuaDrawingDefs::DxDrawLine(lua_State* luaVM)
@@ -2043,6 +2062,180 @@ int CLuaDrawingDefs::DxGetSceneViewInfo(lua_State* luaVM)
         PUSH_SCENE_VIEW_FIELD("lastRenderFrame", lua_pushnumber(luaVM, pSceneView->GetLastRenderFrame()));
         PUSH_SCENE_VIEW_FIELD("lastRenderTick", lua_pushnumber(luaVM, pSceneView->GetLastRenderTick()));
 #undef PUSH_SCENE_VIEW_FIELD
+        return 1;
+    }
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+namespace
+{
+    // Matches CClientRenderElementManager::RenderRequestedCubemaps' faceDirections table order exactly:
+    // D3DCUBEMAP_FACES 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z.
+    const char* const g_CubemapFaceNames[6] = {"posx", "negx", "posy", "negy", "posz", "negz"};
+
+    bool CubemapFaceNameToIndex(const SString& strName, uint& outIndex)
+    {
+        for (uint i = 0; i < 6; i++)
+        {
+            if (strName.CompareI(g_CubemapFaceNames[i]))
+            {
+                outIndex = i;
+                return true;
+            }
+        }
+        return false;
+    }
+}  // namespace
+
+int CLuaDrawingDefs::DxCreateCubemapRenderTarget(lua_State* luaVM)
+{
+    //  cubemap dxCreateCubemapRenderTarget ( int edgeSize [, string colorFormat = "a8r8g8b8" ] )
+    uint       uiEdgeSize = 0;
+    _D3DFORMAT colorFormat = (_D3DFORMAT)D3DFMT_A8R8G8B8;
+
+    CScriptArgReader argStream(luaVM);
+    argStream.ReadNumber(uiEdgeSize);
+    argStream.ReadEnumString(colorFormat, (_D3DFORMAT)D3DFMT_A8R8G8B8);
+
+    if (!argStream.HasErrors() && (uiEdgeSize == 0 || uiEdgeSize > 4096))
+        argStream.SetCustomError("edge size must be between 1 and 4096", "Bad argument");
+
+    if (!argStream.HasErrors())
+    {
+        CLuaMain*                   pLuaMain = m_pLuaManager->GetVirtualMachine(luaVM);
+        CResource*                  pResource = pLuaMain ? pLuaMain->GetResource() : nullptr;
+        CClientCubemapRenderTarget* pCubemap =
+            pResource ? g_pClientGame->GetManager()->GetRenderElementManager()->CreateCubemapRenderTarget(uiEdgeSize, colorFormat) : nullptr;
+        if (pCubemap)
+        {
+            pCubemap->SetParent(pResource->GetResourceDynamicEntity());
+            lua_pushelement(luaVM, pCubemap);
+            return 1;
+        }
+    }
+    else
+        m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxSetCubemapRenderTargetCamera(lua_State* luaVM)
+{
+    //  bool dxSetCubemapRenderTargetCamera ( cubemap theCubemap, float x, float y, float z [, float nearClip = 0.3, float farClip = 500 ] )
+    CClientCubemapRenderTarget* pCubemap = nullptr;
+    CVector                     position;
+    float                       fNearClip = 0.3f;
+    float                       fFarClip = 500.0f;
+
+    CScriptArgReader argStream(luaVM);
+    argStream.ReadUserData(pCubemap);
+    argStream.ReadVector3D(position);
+    argStream.ReadNumber(fNearClip, 0.3f);
+    argStream.ReadNumber(fFarClip, 500.0f);
+
+    if (!argStream.HasErrors() &&
+        (!std::isfinite(position.fX) || !std::isfinite(position.fY) || !std::isfinite(position.fZ) || !std::isfinite(fNearClip) || !std::isfinite(fFarClip)))
+        argStream.SetCustomError("position, nearClip and farClip must be finite", "Bad argument");
+    if (!argStream.HasErrors() && (fNearClip <= 0.0f || fFarClip <= fNearClip))
+        argStream.SetCustomError("nearClip must be greater than zero and less than farClip", "Bad argument");
+
+    if (!argStream.HasErrors())
+    {
+        pCubemap->SetCamera(position, fNearClip, fFarClip);
+        lua_pushboolean(luaVM, true);
+        return 1;
+    }
+
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxRequestCubemapRenderTargetRender(lua_State* luaVM)
+{
+    //  bool dxRequestCubemapRenderTargetRender ( cubemap theCubemap [, table faces = { "posx", "negx", "posy", "negy", "posz", "negz" } ] )
+    CClientCubemapRenderTarget* pCubemap = nullptr;
+    CScriptArgReader            argStream(luaVM);
+    argStream.ReadUserData(pCubemap);
+
+    // All 6 faces render the same frame they're requested - there is no per-frame throttling. A script that
+    // wants to spread the cost over multiple frames does so itself, by requesting a subset of faces each call.
+    uint8 uiFaceMask = 0x3F;
+    if (argStream.NextIsTable())
+    {
+        uiFaceMask = 0;
+        lua_pushvalue(luaVM, argStream.m_iIndex);
+        lua_pushnil(luaVM);
+        while (lua_next(luaVM, -2) != 0)
+        {
+            if (lua_type(luaVM, -1) == LUA_TSTRING)
+            {
+                uint uiFaceIndex;
+                if (CubemapFaceNameToIndex(lua_tostring(luaVM, -1), uiFaceIndex))
+                    uiFaceMask |= (1 << uiFaceIndex);
+            }
+            lua_pop(luaVM, 1);
+        }
+        lua_pop(luaVM, 1);
+        ++argStream.m_iIndex;
+
+        if (!argStream.HasErrors() && uiFaceMask == 0)
+            argStream.SetCustomError("faces table must name at least one valid face (posx, negx, posy, negy, posz, negz)", "Bad argument");
+    }
+
+    if (!argStream.HasErrors())
+    {
+        pCubemap->RequestFaces(uiFaceMask);
+        lua_pushboolean(luaVM, true);
+        return 1;
+    }
+
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxGetCubemapRenderTargetTexture(lua_State* luaVM)
+{
+    //  cubemap dxGetCubemapRenderTargetTexture ( cubemap theCubemap )
+    CClientCubemapRenderTarget* pCubemap = nullptr;
+    CScriptArgReader            argStream(luaVM);
+    argStream.ReadUserData(pCubemap);
+    if (!argStream.HasErrors())
+    {
+        // Mirrors dxGetSceneViewTexture: the cubemap element derives from CClientTexture, so returning the
+        // same owned element avoids introducing a second Lua wrapper with ambiguous lifetime for one D3D texture.
+        lua_pushelement(luaVM, pCubemap);
+        return 1;
+    }
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxGetCubemapRenderTargetInfo(lua_State* luaVM)
+{
+    //  table dxGetCubemapRenderTargetInfo ( cubemap theCubemap )
+    CClientCubemapRenderTarget* pCubemap = nullptr;
+    CScriptArgReader            argStream(luaVM);
+    argStream.ReadUserData(pCubemap);
+    if (!argStream.HasErrors())
+    {
+        CCubemapRenderTargetItem* pItem = pCubemap->GetCubemapRenderTargetItem();
+        lua_createtable(luaVM, 0, 5);
+#define PUSH_CUBEMAP_FIELD(Name, PushCall) \
+    lua_pushstring(luaVM, Name); \
+    PushCall; \
+    lua_settable(luaVM, -3)
+        PUSH_CUBEMAP_FIELD("edgeSize", lua_pushnumber(luaVM, pItem->m_uiEdgeSize));
+        PUSH_CUBEMAP_FIELD("cameraConfigured", lua_pushboolean(luaVM, pCubemap->IsPositionConfigured()));
+        PUSH_CUBEMAP_FIELD("lastRenderSucceeded", lua_pushboolean(luaVM, pCubemap->DidLastRenderSucceed()));
+        PUSH_CUBEMAP_FIELD("renderCount", lua_pushnumber(luaVM, pCubemap->GetRenderCount()));
+        PUSH_CUBEMAP_FIELD("lastRenderError", lua_pushstring(luaVM, pCubemap->GetLastRenderError()));
+#undef PUSH_CUBEMAP_FIELD
         return 1;
     }
     m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());

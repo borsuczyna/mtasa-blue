@@ -2783,6 +2783,11 @@ void CMultiplayerSA::SetSceneViewProjection(bool bOrthographic, float fWidth, fl
     m_fSecondarySceneOrthoFarClip = fFarClip;
 }
 
+void CMultiplayerSA::SetSceneViewSquarePerspective(bool bEnable)
+{
+    m_bSecondarySceneSquarePerspective = bEnable;
+}
+
 bool CMultiplayerSA::RenderSecondaryScene()
 {
     m_strLastSecondarySceneRenderError.clear();
@@ -2944,6 +2949,24 @@ bool CMultiplayerSA::RenderSecondaryScene()
     else
     {
         reinterpret_cast<RwCamera*(__cdecl*)(RwCamera*, RwCameraType)>(FUNC_RwCameraSetProjection)(pRwCamera, RW_CAMERA_PERSPECTIVE);
+
+        // Cube-map faces: CameraCalculateDerived above still ties screen.x/screen.y to TheCamera's FOV and
+        // whatever aspect ratio it assumes for the primary display, not this square off-screen target's own
+        // 1:1 dimensions. Force the exact symmetric frustum a 90-degree cube face requires - tan(45) on both
+        // axes - rather than trust that derivation for a target shape GTA's own camera model never renders to.
+        if (m_bSecondarySceneSquarePerspective)
+        {
+            const RwV2d squareViewWindow = {1.0f, 1.0f};
+            reinterpret_cast<RwCamera*(__cdecl*)(RwCamera*, const RwV2d*)>(FUNC_RwCameraSetViewWindow)(pRwCamera, &squareViewWindow);
+
+            // Ordinary (non-cube-face) SceneViews intentionally leave near/far alone here, inheriting whatever
+            // the primary-camera copy at the top of this function set - existing behaviour, unchanged. Cube
+            // faces reuse the same near/far fields SetSceneViewProjection already stores for orthographic mode,
+            // since a reflection probe needs its own clip range independent of whatever the primary camera's
+            // happens to be at the moment a face is requested.
+            reinterpret_cast<RwCamera*(__cdecl*)(RwCamera*, float)>(FUNC_RwCameraSetNearClipPlane)(pRwCamera, m_fSecondarySceneOrthoNearClip);
+            reinterpret_cast<RwCamera*(__cdecl*)(RwCamera*, float)>(FUNC_RwCameraSetFarClipPlane)(pRwCamera, m_fSecondarySceneOrthoFarClip);
+        }
     }
 
     // CEntity::PreRender mutates state shared by every instance of a model. In particular, it increases

@@ -34,14 +34,16 @@ public:
                                             float fMaxDistance, bool bLayered, bool bDebug, int iTypeMask, const EffectMacroList& macros);
     virtual CRenderTargetItem* CreateRenderTarget(uint uiSizeX, uint uiSizeY, bool bHasSurfaceFormat, bool bWithAlphaChannel, int surfaceFormat,
                                                   bool bForce = false);
-    virtual CDepthStencilTargetItem* CreateDepthStencilTarget(uint uiSizeX, uint uiSizeY, int surfaceFormat, bool bSampleable);
-    virtual CMrtSetItem*             CreateMrtSet(CRenderTargetItem* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets,
-                                                  CDepthStencilTargetItem* pDepthStencilTargetItem);
-    virtual CScreenSourceItem*       CreateScreenSource(uint uiSizeX, uint uiSizeY);
+    virtual CDepthStencilTargetItem*  CreateDepthStencilTarget(uint uiSizeX, uint uiSizeY, int surfaceFormat, bool bSampleable);
+    virtual CCubemapRenderTargetItem* CreateCubemapRenderTarget(uint uiEdgeSize, int surfaceFormat);
+    virtual CMrtSetItem*              CreateMrtSet(CRenderTargetItem* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets,
+                                                   CDepthStencilTargetItem* pDepthStencilTargetItem);
+    virtual CScreenSourceItem*        CreateScreenSource(uint uiSizeX, uint uiSizeY);
     virtual bool BeginRenderPass(CRenderTargetItem* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets, CDepthStencilTargetItem* pDepthStencilTargetItem,
                                  bool bClear);
     virtual bool BeginSceneViewRender(CRenderTargetItem* pTarget, CDepthStencilTargetItem* pDepthStencilTargetItem, const CMatrix& cameraMatrix, float fFOV,
                                       bool bClear);
+    virtual bool BeginCubemapFaceRender(CCubemapRenderTargetItem* pCubemap, uint uiFace, const CMatrix& cameraMatrix, bool bClear);
     virtual bool EndRenderPass();
     virtual uint GetRenderPassDepth() { return (uint)m_RenderPassStack.size(); }
     virtual void ForceCloseAllRenderPasses();

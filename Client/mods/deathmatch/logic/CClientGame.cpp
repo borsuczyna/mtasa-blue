@@ -3932,6 +3932,7 @@ void CClientGame::PreConstructRenderListHandler()
     // GTA's own ConstructRenderList and PreRender execute immediately after this callback, replacing every
     // shared secondary list and camera-dependent dynamic-entity value before the primary frame is drawn.
     m_pManager->GetRenderElementManager()->RenderRequestedSceneView();
+    m_pManager->GetRenderElementManager()->RenderRequestedCubemaps();
 }
 
 void CClientGame::PreWeatherUpdateHandler()
