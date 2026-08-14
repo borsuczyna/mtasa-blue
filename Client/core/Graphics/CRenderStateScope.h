@@ -61,11 +61,17 @@ public:
     // before the *first* call is restored by the destructor).
     bool ApplyCamera(const CMatrix& matrix, float fFOV);
 
+    // Native RenderWare world rendering maintains its own D3D9 state cache. Applying a raw D3D state block
+    // afterwards would change the device without updating that cache, so SceneViews discard this snapshot and
+    // retain only the explicitly scoped target, viewport, transform and camera restoration.
+    void DiscardSavedDrawState();
+
 private:
     static CCamera* GetActiveGameCam(CCam*& outCam);
     static void     ApplyCameraMatrixToGame(CCamera* pCamera, CCam* pCam, const CMatrix& matrix, float fFOV);
 
-    IDirect3DDevice9* m_pDevice;
+    IDirect3DDevice9*     m_pDevice;
+    IDirect3DStateBlock9* m_pSavedDrawState;
 
     int                m_iNumRenderTargetSlots;
     IDirect3DSurface9* m_SavedRenderTargets[MAX_MRT_RENDER_TARGETS];

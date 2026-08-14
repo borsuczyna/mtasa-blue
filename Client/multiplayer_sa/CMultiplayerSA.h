@@ -266,20 +266,21 @@ public:
 
     CShotSyncData* GetLocalShotSyncData();
 
-    void SetPreContextSwitchHandler(PreContextSwitchHandler* pHandler);
-    void SetPostContextSwitchHandler(PostContextSwitchHandler* pHandler);
-    void SetPreWeaponFireHandler(PreWeaponFireHandler* pHandler);
-    void SetPostWeaponFireHandler(PostWeaponFireHandler* pHandler);
-    void SetBulletImpactHandler(BulletImpactHandler* pHandler);
-    void SetBulletFireHandler(BulletFireHandler* pHandler);
-    void SetDrawRadarAreasHandler(DrawRadarAreasHandler* pRadarAreasHandler);
-    void SetRender3DStuffHandler(Render3DStuffHandler* pHandler);
-    void SetPreRenderSkyHandler(PreRenderSkyHandler* pHandler);
-    void SetPreConstructRenderListHandler(PreConstructRenderListHandler* pHandler) override;
-    bool RenderSecondaryScene() override;
-    void ReleaseSecondarySceneResources() override;
-    void SetRenderHeliLightHandler(RenderHeliLightHandler* pHandler);
-    void SetRenderEverythingBarRoadsHandler(RenderEverythingBarRoadsHandler* pHandler) override;
+    void           SetPreContextSwitchHandler(PreContextSwitchHandler* pHandler);
+    void           SetPostContextSwitchHandler(PostContextSwitchHandler* pHandler);
+    void           SetPreWeaponFireHandler(PreWeaponFireHandler* pHandler);
+    void           SetPostWeaponFireHandler(PostWeaponFireHandler* pHandler);
+    void           SetBulletImpactHandler(BulletImpactHandler* pHandler);
+    void           SetBulletFireHandler(BulletFireHandler* pHandler);
+    void           SetDrawRadarAreasHandler(DrawRadarAreasHandler* pRadarAreasHandler);
+    void           SetRender3DStuffHandler(Render3DStuffHandler* pHandler);
+    void           SetPreRenderSkyHandler(PreRenderSkyHandler* pHandler);
+    void           SetPreConstructRenderListHandler(PreConstructRenderListHandler* pHandler) override;
+    bool           RenderSecondaryScene() override;
+    const SString& GetLastSecondarySceneRenderError() const override { return m_strLastSecondarySceneRenderError; }
+    void           ReleaseSecondarySceneResources() override;
+    void           SetRenderHeliLightHandler(RenderHeliLightHandler* pHandler);
+    void           SetRenderEverythingBarRoadsHandler(RenderEverythingBarRoadsHandler* pHandler) override;
 
     void Reset();
 
@@ -384,6 +385,7 @@ private:
     RwRaster* m_pSecondarySceneDepthRaster{};
     UINT      m_uiSecondarySceneRasterWidth{};
     UINT      m_uiSecondarySceneRasterHeight{};
+    SString   m_strLastSecondarySceneRenderError;
 
     std::vector<char>   m_PlayerImgCache;
     EFastClothesLoading m_FastClothesLoading;

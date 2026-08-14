@@ -39,6 +39,7 @@ public:
     CClientDepthStencilTarget* CreateDepthStencilTarget(uint uiSizeX, uint uiSizeY, _D3DFORMAT surfaceFormat, bool bSampleable);
     CClientMrtSet* CreateMrtSet(CClientRenderTarget* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets, CClientDepthStencilTarget* pDepthStencilTarget);
     CClientSceneView*     CreateSceneView(uint uiSizeX, uint uiSizeY, _D3DFORMAT colorFormat, _D3DFORMAT depthFormat);
+    bool                  SetSceneViewOutputShader(CClientSceneView* pSceneView, CShaderItem* pShaderItem, const SString& strInputName);
     bool                  RenderRequestedSceneView();
     CClientScreenSource*  CreateScreenSource(uint uiSizeX, uint uiSizeY);
     CClientWebBrowser*    CreateWebBrowser(uint uiSizeX, uint uiSizeY, bool bIsLocal, bool bTransparent);

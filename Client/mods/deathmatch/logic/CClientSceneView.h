@@ -38,6 +38,8 @@ public:
     {
         for (SSceneViewShaderAssignment& assignment : m_ShaderAssignments)
             SAFE_RELEASE(assignment.pShaderItem);
+        SAFE_RELEASE(m_pOutputShaderItem);
+        SAFE_RELEASE(m_pPostProcessTargetItem);
         SAFE_RELEASE(m_pDepthStencilTargetItem);
     }
 
@@ -112,6 +114,8 @@ public:
     uint                     GetRenderCount() const { return m_uiRenderCount; }
     uint                     GetLastRenderFrame() const { return m_uiLastRenderFrame; }
     uint                     GetLastRenderTick() const { return m_uiLastRenderTick; }
+    void                     SetLastRenderError(const SString& strError) { m_strLastRenderError = strError; }
+    const SString&           GetLastRenderError() const { return m_strLastRenderError; }
 
     bool AddShaderAssignment(CShaderItem* pShaderItem, const SString& strTextureNameMatch)
     {
@@ -142,6 +146,28 @@ public:
 
     const std::vector<SSceneViewShaderAssignment>& GetShaderAssignments() const { return m_ShaderAssignments; }
 
+    void SetOutputShader(CShaderItem* pShaderItem, CRenderTargetItem* pPostProcessTargetItem, const SString& strInputName)
+    {
+        SAFE_RELEASE(m_pOutputShaderItem);
+        SAFE_RELEASE(m_pPostProcessTargetItem);
+        m_pOutputShaderItem = pShaderItem;
+        m_pPostProcessTargetItem = pPostProcessTargetItem;
+        m_strOutputShaderInputName = strInputName;
+        if (m_pOutputShaderItem)
+            m_pOutputShaderItem->AddRef();
+    }
+
+    void ClearOutputShader()
+    {
+        SAFE_RELEASE(m_pOutputShaderItem);
+        SAFE_RELEASE(m_pPostProcessTargetItem);
+        m_strOutputShaderInputName.clear();
+    }
+
+    CShaderItem*       GetOutputShaderItem() const { return m_pOutputShaderItem; }
+    CRenderTargetItem* GetPostProcessTargetItem() const { return m_pPostProcessTargetItem; }
+    const SString&     GetOutputShaderInputName() const { return m_strOutputShaderInputName; }
+
 private:
     CDepthStencilTargetItem*                m_pDepthStencilTargetItem;
     CMatrix                                 m_CameraMatrix;
@@ -155,4 +181,8 @@ private:
     uint                                    m_uiLastRenderFrame = 0;
     uint                                    m_uiLastRenderTick = 0;
     std::vector<SSceneViewShaderAssignment> m_ShaderAssignments;
+    CShaderItem*                            m_pOutputShaderItem = nullptr;
+    CRenderTargetItem*                      m_pPostProcessTargetItem = nullptr;
+    SString                                 m_strOutputShaderInputName;
+    SString                                 m_strLastRenderError;
 };

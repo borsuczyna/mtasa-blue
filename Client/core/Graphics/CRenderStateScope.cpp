@@ -39,6 +39,7 @@ namespace
 ////////////////////////////////////////////////////////////////
 CRenderStateScope::CRenderStateScope(IDirect3DDevice9* pDevice)
     : m_pDevice(pDevice),
+      m_pSavedDrawState(nullptr),
       m_iNumRenderTargetSlots(0),
       m_bHasSavedDepthStencil(false),
       m_pSavedDepthStencil(nullptr),
@@ -52,6 +53,10 @@ CRenderStateScope::CRenderStateScope(IDirect3DDevice9* pDevice)
 
     if (!m_pDevice)
         return;
+
+    // Render-target textures may still be bound by the previous frame's dxDrawImage. Preserve all draw and
+    // sampler state before ApplyRenderTargets unbinds those textures to avoid D3D9 read/write hazards.
+    m_pDevice->CreateStateBlock(D3DSBT_ALL, &m_pSavedDrawState);
 
     // Only capture as many slots as the device actually exposes - calling
     // GetRenderTarget beyond NumSimultaneousRTs is an invalid call on DX9.
@@ -87,6 +92,12 @@ CRenderStateScope::~CRenderStateScope()
     // Flush anything drawn while this scope's targets were active, before switching back
     CGraphics::GetSingleton().OnChangingRenderTarget(m_SavedViewport.Width, m_SavedViewport.Height);
 
+    if (m_pSavedDrawState)
+    {
+        m_pSavedDrawState->Apply();
+        SAFE_RELEASE(m_pSavedDrawState);
+    }
+
     for (int i = 0; i < m_iNumRenderTargetSlots; ++i)
     {
         m_pDevice->SetRenderTarget(i, m_SavedRenderTargets[i]);
@@ -114,6 +125,11 @@ CRenderStateScope::~CRenderStateScope()
     }
 }
 
+void CRenderStateScope::DiscardSavedDrawState()
+{
+    SAFE_RELEASE(m_pSavedDrawState);
+}
+
 ////////////////////////////////////////////////////////////////
 //
 // CRenderStateScope::ApplyRenderTargets
@@ -126,6 +142,15 @@ bool CRenderStateScope::ApplyRenderTargets(IDirect3DSurface9* const targets[MAX_
         return false;
 
     CGraphics::GetSingleton().OnChangingRenderTarget(uiViewportSizeX, uiViewportSizeY);
+
+    // A texture cannot be sampled while one of its surfaces is used as a render target. Clear every DX9
+    // pixel and vertex sampler before binding targets; the scope's state block restores prior bindings.
+    // D3DCAPS9::MaxSimultaneousTextures is the fixed-function texture-stage count and may be only 8;
+    // programmable SM3 pixel shaders can bind all 16 sampler registers.
+    for (DWORD i = 0; i < 16; ++i)
+        m_pDevice->SetTexture(i, nullptr);
+    for (DWORD i = 0; i < 4; ++i)
+        m_pDevice->SetTexture(D3DVERTEXTEXTURESAMPLER0 + i, nullptr);
 
     for (int i = 0; i < m_iNumRenderTargetSlots; ++i)
     {

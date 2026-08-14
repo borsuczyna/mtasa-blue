@@ -35,8 +35,9 @@ Debug Win32 compilation succeeds. The `dx9_foundation_test` resource passed in-g
 ## Stage 2 — Multiple scheduled scene views
 
 - [x] Raise scene-view cap + update modes (done for the current two-view scope — the shared create/render/capability limit is two and both views drain sequentially at the safe pre-`ConstructRenderList` point. Debug Win32 builds, two-camera isolation and throttled-mode tests pass. `dxSetSceneViewUpdateMode` supports `manual`, `once`, `always`, `every_n_frames` and millisecond `interval`. The public output retains its last complete frame until replacement copying finishes. Resolution and pixel count do not affect scheduling.)
-- [ ] Isolated per-SceneView world-material shader assignments that ignore primary/other-view shader maps (in-progress — scoped alternate matching, resource-owned shader references and apply/remove Lua entry points are implemented; Debug build and visual isolation tests remain)
-- [ ] SceneView output post-process chain using safe render passes and ping-pong targets; `dxGetSceneViewTexture` remains a plain getter (planned)
+- [x] Isolated per-SceneView world-material shader assignments that ignore primary/other-view shader maps (done — scoped alternate matching, resource-owned shader references and apply/remove Lua entry points passed Debug builds and two-view visual isolation, restart and device-reset tests. Commit: `bda1eac90`)
+- [ ] SceneView output post-process chain using safe render passes and ping-pong targets; `dxGetSceneViewTexture` remains a plain getter (in progress — the first single-output-shader path uses a private intermediate target and explicit input binding; multi-effect ordering remains deferred until this path passes runtime testing)
+- [ ] Matrix-based SceneView camera setter in addition to the existing position/target setter (planned — validate and normalize the full camera basis, then reuse the existing internal `CMatrix` path without breaking current scripts)
 
 ## Stage 3 — Cubemap render targets
 

@@ -67,6 +67,8 @@ public:
     LUA_DECLARE(DxSetSceneViewUpdateMode);
     LUA_DECLARE(DxApplyShaderToSceneViewWorldTexture);
     LUA_DECLARE(DxRemoveShaderFromSceneViewWorldTexture);
+    LUA_DECLARE(DxSetSceneViewOutputShader);
+    LUA_DECLARE(DxRemoveSceneViewOutputShader);
     LUA_DECLARE(DxGetSceneViewTexture);
     LUA_DECLARE(DxGetSceneViewInfo);
     LUA_DECLARE(DxCreateScreenSource);

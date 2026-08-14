@@ -128,6 +128,7 @@ public:
     void DrawTexture(CTextureItem* texture, float fX, float fY, float fScaleX = 1.0f, float fScaleY = 1.0f, float fRotation = 0.0f, float fCenterX = 0.0f,
                      float fCenterY = 0.0f, DWORD dwColor = 0xFFFFFFFF, float fU = 0, float fV = 0, float fSizeU = 1, float fSizeV = 1,
                      bool bRelativeUV = true);
+    void DrawMaterialImmediate(CMaterialItem* pMaterial, float fWidth, float fHeight);
 
     // Interface functions
     void SetCursorPosition(int iX, int iY, DWORD Flags);
@@ -219,10 +220,10 @@ private:
     void       OnZBufferModified();
     ID3DXFont* MaybeGetBigFont(ID3DXFont* pDXFont, float& fScaleX, float& fScaleY);
     void       CheckModes(EDrawModeType newDrawMode, EBlendModeType newBlendMode = EBlendMode::NONE);
-    void       DrawColorCodedTextLine(float fLeft, float fRight, float fY, SColor& currentColor, const wchar_t* wszText, float fScaleX, float fScaleY,
-                                      unsigned long ulFormat, ID3DXFont* pDXFont, bool bPostGUI, bool bSubPixelPositioning, float fRotation, float fRotationCenterX,
-                                      float fRotationCenterY);
-    int        GetTrailingSpacesWidth(ID3DXFont* pDXFont, WString& strText);
+    void DrawColorCodedTextLine(float fLeft, float fRight, float fY, SColor& currentColor, const wchar_t* wszText, float fScaleX, float fScaleY,
+                                unsigned long ulFormat, ID3DXFont* pDXFont, bool bPostGUI, bool bSubPixelPositioning, float fRotation, float fRotationCenterX,
+                                float fRotationCenterY);
+    int  GetTrailingSpacesWidth(ID3DXFont* pDXFont, WString& strText);
 
     CLocalGUI* m_pGUI;
 

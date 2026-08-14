@@ -55,8 +55,11 @@ public:
     virtual void                UpdateScreenSource(CScreenSourceItem* pScreenSourceItem, bool bResampleNow);
     virtual SShaderItemLayers*  GetAppliedShaderForD3DData(CD3DDUMMY* pD3DData);
     virtual void                SetSceneViewShaderContext(const std::vector<SSceneViewShaderAssignment>* pAssignments);
-    virtual bool                ApplyShaderItemToWorldTexture(CShaderItem* pShaderItem, const SString& strTextureNameMatch, CClientEntityBase* pClientEntity,
-                                                              bool bAppendLayers);
+    virtual bool ApplySceneViewOutputShader(CRenderTargetItem* pSource, CRenderTargetItem* pDestination, CShaderItem* pShader, const SString& strInputName);
+    virtual bool IsSceneViewOutputShaderValid(CShaderItem* pShader, const SString& strInputName);
+    virtual const SString& GetLastSceneViewOutputError() const { return m_strLastSceneViewOutputError; }
+    virtual bool           ApplyShaderItemToWorldTexture(CShaderItem* pShaderItem, const SString& strTextureNameMatch, CClientEntityBase* pClientEntity,
+                                                         bool bAppendLayers);
     virtual bool           RemoveShaderItemFromWorldTexture(CShaderItem* pShaderItem, const SString& strTextureNameMatch, CClientEntityBase* pClientEntity);
     virtual void           RemoveClientEntityRefs(CClientEntityBase* pClientEntity);
     virtual void           GetVisibleTextureNames(std::vector<SString>& outNameList, const SString& strTextureNameMatch, ushort usModelID);
@@ -155,4 +158,5 @@ protected:
     uint                            m_uiRenderPassesStarted;
     uint                            m_uiRenderPassFailures;
     uint                            m_uiForcedRenderPassClosures;
+    SString                         m_strLastSceneViewOutputError;
 };

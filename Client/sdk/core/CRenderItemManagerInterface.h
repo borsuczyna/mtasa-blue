@@ -293,8 +293,11 @@ public:
     virtual void                UpdateScreenSource(CScreenSourceItem* pScreenSourceItem, bool bResampleNow) = 0;
     virtual SShaderItemLayers*  GetAppliedShaderForD3DData(CD3DDUMMY* pD3DData) = 0;
     virtual void                SetSceneViewShaderContext(const std::vector<SSceneViewShaderAssignment>* pAssignments) = 0;
-    virtual bool                ApplyShaderItemToWorldTexture(CShaderItem* pShaderItem, const SString& strTextureNameMatch, CClientEntityBase* pClientEntity,
-                                                              bool bAppendLayers) = 0;
+    virtual bool ApplySceneViewOutputShader(CRenderTargetItem* pSource, CRenderTargetItem* pDestination, CShaderItem* pShader, const SString& strInputName) = 0;
+    virtual bool IsSceneViewOutputShaderValid(CShaderItem* pShader, const SString& strInputName) = 0;
+    virtual const SString& GetLastSceneViewOutputError() const = 0;
+    virtual bool           ApplyShaderItemToWorldTexture(CShaderItem* pShaderItem, const SString& strTextureNameMatch, CClientEntityBase* pClientEntity,
+                                                         bool bAppendLayers) = 0;
     virtual bool           RemoveShaderItemFromWorldTexture(CShaderItem* pShaderItem, const SString& strTextureNameMatch, CClientEntityBase* pClientEntity) = 0;
     virtual void           RemoveClientEntityRefs(CClientEntityBase* pClientEntity) = 0;
     virtual void           GetVisibleTextureNames(std::vector<SString>& outNameList, const SString& strTextureNameMatch, ushort usModelID) = 0;

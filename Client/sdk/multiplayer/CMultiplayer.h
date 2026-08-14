@@ -473,4 +473,7 @@ public:
 
     virtual unsigned int EntryInfoNodePool_NoOfUsedSpaces() const noexcept = 0;
     virtual unsigned int PtrNodeDoubleLinkPool_NoOfUsedSpaces() const noexcept = 0;
+
+    // Appended to preserve the ABI indices of every existing cross-DLL virtual method.
+    virtual const SString& GetLastSecondarySceneRenderError() const = 0;
 };

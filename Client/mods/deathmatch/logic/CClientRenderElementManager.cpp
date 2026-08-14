@@ -282,6 +282,22 @@ CClientSceneView* CClientRenderElementManager::CreateSceneView(uint uiSizeX, uin
     return pSceneView;
 }
 
+bool CClientRenderElementManager::SetSceneViewOutputShader(CClientSceneView* pSceneView, CShaderItem* pShaderItem, const SString& strInputName)
+{
+    if (!m_pRenderItemManager->IsSceneViewOutputShaderValid(pShaderItem, strInputName))
+        return false;
+
+    CRenderTargetItem* pSource = pSceneView->GetRenderTargetItem();
+    CRenderTargetItem* pIntermediate = m_pRenderItemManager->CreateRenderTarget(pSource->m_uiSizeX, pSource->m_uiSizeY, true, true, pSource->m_eSurfaceFormat);
+    if (!pIntermediate)
+        return false;
+
+    // The SceneView takes ownership of the newly-created private target. It is deliberately not mapped to
+    // a Lua element, so scripts cannot bind it and create a feedback hazard behind the scheduler's back.
+    pSceneView->SetOutputShader(pShaderItem, pIntermediate, strInputName);
+    return true;
+}
+
 bool CClientRenderElementManager::RenderRequestedSceneView()
 {
     // Consume requests before entering each native world pass. Lua cannot run from this loop, and the
@@ -301,6 +317,7 @@ bool CClientRenderElementManager::RenderRequestedSceneView()
         const bool bBegan = m_pRenderItemManager->BeginSceneViewRender(pSceneView->GetRenderTargetItem(), pSceneView->GetDepthStencilTargetItem(),
                                                                        pSceneView->GetCameraMatrix(), pSceneView->GetFOV(), false);
         bool       bRendered = false;
+        pSceneView->SetLastRenderError(bBegan ? "secondary scene render failed" : "could not begin scene-view render pass");
         if (bBegan)
         {
             // A non-null context, including an empty one, intentionally suppresses global world shader
@@ -318,7 +335,17 @@ bool CClientRenderElementManager::RenderRequestedSceneView()
             } shaderContext(m_pRenderItemManager, pSceneView->GetShaderAssignments());
 
             bRendered = g_pMultiplayer->RenderSecondaryScene();
+            if (!bRendered)
+                pSceneView->SetLastRenderError(g_pMultiplayer->GetLastSecondarySceneRenderError());
             m_pRenderItemManager->EndRenderPass();
+            if (bRendered && pSceneView->GetOutputShaderItem())
+            {
+                bRendered = m_pRenderItemManager->ApplySceneViewOutputShader(pSceneView->GetRenderTargetItem(), pSceneView->GetPostProcessTargetItem(),
+                                                                             pSceneView->GetOutputShaderItem(), pSceneView->GetOutputShaderInputName());
+                pSceneView->SetLastRenderError(bRendered ? SString() : m_pRenderItemManager->GetLastSceneViewOutputError());
+            }
+            else if (bRendered)
+                pSceneView->SetLastRenderError("");
         }
         pSceneView->OnRenderCompleted(bRendered, uiFrame, uiTickCount);
         bAnyRendered |= bRendered;

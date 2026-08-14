@@ -537,6 +537,12 @@ bool CRenderItemManager::BeginSceneViewRender(CRenderTargetItem* pTarget, CDepth
         EndRenderPass();
         return false;
     }
+
+    // RenderWare caches fixed-function states such as COLORVERTEX and the material-source selectors used by
+    // GTA's pre-lit meshes. IDirect3DStateBlock9::Apply bypasses both that cache and MTA's device proxy, making
+    // the next SceneView/primary render incorrectly skip state changes. Native world passes therefore leave
+    // draw state owned by RenderWare while this scope still restores all attachment and camera state.
+    m_RenderPassStack.back()->DiscardSavedDrawState();
     return true;
 }
 
@@ -1115,6 +1121,96 @@ bool CRenderItemManager::RestoreDefaultRenderTarget()
     }
 
     return true;
+}
+
+bool CRenderItemManager::ApplySceneViewOutputShader(CRenderTargetItem* pSource, CRenderTargetItem* pDestination, CShaderItem* pShader,
+                                                    const SString& strInputName)
+{
+    m_strLastSceneViewOutputError.clear();
+    if (!pSource || !pDestination || !pShader || !pSource->TryEnsureValid() || !pDestination->TryEnsureValid() || !pShader->IsValid())
+    {
+        m_strLastSceneViewOutputError = "invalid output-pass render item";
+        WriteDebugEvent("ApplySceneViewOutputShader - an input render item is invalid");
+        return false;
+    }
+
+    pShader->MaybeRenewShaderInstance();
+    CShaderInstance* pInstance = pShader->m_pShaderInstance;
+    ID3DXEffect*     pEffect = pInstance && pInstance->m_pEffectWrap ? pInstance->m_pEffectWrap->m_pD3DEffect : nullptr;
+    D3DXHANDLE       hInput = pEffect ? pEffect->GetParameterByName(nullptr, strInputName) : nullptr;
+    if (!hInput)
+    {
+        m_strLastSceneViewOutputError = SString("texture parameter '%s' is unavailable", *strInputName);
+        WriteDebugEvent(SString("ApplySceneViewOutputShader - texture parameter '%s' is unavailable", *strInputName));
+        return false;
+    }
+
+    // The native secondary-world hook can leave arbitrary GTA draw state active. Preserve it independently
+    // of the render-target scope because D3D9 state blocks cover shader/blend/depth/sampler state while
+    // CRenderStateScope deliberately owns targets, viewport and transforms.
+    IDirect3DStateBlock9* pSavedDrawState = nullptr;
+    if (FAILED(m_pDevice->CreateStateBlock(D3DSBT_ALL, &pSavedDrawState)) || !pSavedDrawState)
+    {
+        m_strLastSceneViewOutputError = "could not capture D3D draw state";
+        WriteDebugEvent("ApplySceneViewOutputShader - could not capture D3D draw state");
+        return false;
+    }
+    struct CScopedDrawState
+    {
+        ~CScopedDrawState()
+        {
+            pState->Apply();
+            pState->Release();
+        }
+        IDirect3DStateBlock9* pState;
+    } savedDrawState{pSavedDrawState};
+
+    // Bind through the shader instance so ApplyShaderParameters cannot restore the effect default over
+    // the SceneView input immediately before drawing. The binding is removed after the draw, avoiding a
+    // persistent SceneView -> shader -> SceneView texture reference cycle.
+    pInstance->SetTextureValue(hInput, pSource);
+
+    CRenderTargetItem* targets[MAX_MRT_RENDER_TARGETS] = {pDestination, nullptr, nullptr, nullptr};
+    if (!BeginRenderPass(targets, 1, nullptr, true))
+    {
+        m_strLastSceneViewOutputError = "could not begin intermediate render pass";
+        pInstance->SetTextureValue(hInput, nullptr);
+        WriteDebugEvent("ApplySceneViewOutputShader - could not begin intermediate render pass");
+        return false;
+    }
+
+    CGraphics::GetSingleton().DrawMaterialImmediate(pInstance, static_cast<float>(pDestination->m_uiSizeX), static_cast<float>(pDestination->m_uiSizeY));
+    const bool bEnded = EndRenderPass();
+    pInstance->SetTextureValue(hInput, nullptr);
+    pEffect->SetTexture(hInput, nullptr);
+    if (!bEnded)
+    {
+        m_strLastSceneViewOutputError = "could not end intermediate render pass";
+        WriteDebugEvent("ApplySceneViewOutputShader - could not end intermediate render pass");
+        return false;
+    }
+
+    // D3DX leaves effect sampler bindings active after EndPass. Copying into pSource while it is still bound
+    // as a texture is an invalid read/write hazard on D3D9 and was driver-timing dependent across resource
+    // restarts. Unbind every pixel/vertex sampler before publishing; the saved state restores them on exit.
+    for (DWORD i = 0; i < 16; ++i)
+        m_pDevice->SetTexture(i, nullptr);
+    for (DWORD i = 0; i < 4; ++i)
+        m_pDevice->SetTexture(D3DVERTEXTEXTURESAMPLER0 + i, nullptr);
+
+    const HRESULT hResult = HandleStretchRect(pDestination->m_pD3DRenderTargetSurface, nullptr, pSource->m_pD3DRenderTargetSurface, nullptr, D3DTEXF_NONE);
+    if (FAILED(hResult))
+    {
+        m_strLastSceneViewOutputError = SString("final StretchRect failed: %08x", hResult);
+        WriteDebugEvent(SString("ApplySceneViewOutputShader - final StretchRect failed: %08x", hResult));
+    }
+    return SUCCEEDED(hResult);
+}
+
+bool CRenderItemManager::IsSceneViewOutputShaderValid(CShaderItem* pShader, const SString& strInputName)
+{
+    ID3DXEffect* pEffect = pShader && pShader->m_pEffectWrap ? pShader->m_pEffectWrap->m_pD3DEffect : nullptr;
+    return pEffect && pEffect->GetParameterByName(nullptr, strInputName);
 }
 
 ////////////////////////////////////////////////////////////////

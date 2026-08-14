@@ -54,6 +54,8 @@ void CLuaDrawingDefs::LoadFunctions()
         {"dxSetSceneViewUpdateMode", DxSetSceneViewUpdateMode},
         {"dxApplyShaderToSceneViewWorldTexture", DxApplyShaderToSceneViewWorldTexture},
         {"dxRemoveShaderFromSceneViewWorldTexture", DxRemoveShaderFromSceneViewWorldTexture},
+        {"dxSetSceneViewOutputShader", DxSetSceneViewOutputShader},
+        {"dxRemoveSceneViewOutputShader", DxRemoveSceneViewOutputShader},
         {"dxGetSceneViewTexture", DxGetSceneViewTexture},
         {"dxGetSceneViewInfo", DxGetSceneViewInfo},
         {"dxCreateScreenSource", DxCreateScreenSource},
@@ -203,6 +205,8 @@ void CLuaDrawingDefs::AddDxSceneViewClass(lua_State* luaVM)
     lua_classfunction(luaVM, "setCamera", "dxSetSceneViewCamera");
     lua_classfunction(luaVM, "requestRender", "dxRequestSceneViewRender");
     lua_classfunction(luaVM, "setUpdateMode", "dxSetSceneViewUpdateMode");
+    lua_classfunction(luaVM, "setOutputShader", "dxSetSceneViewOutputShader");
+    lua_classfunction(luaVM, "removeOutputShader", "dxRemoveSceneViewOutputShader");
     lua_classfunction(luaVM, "getTexture", "dxGetSceneViewTexture");
     lua_classfunction(luaVM, "getInfo", "dxGetSceneViewInfo");
     lua_registerclass(luaVM, "DxSceneView", "DxRenderTarget");
@@ -1796,6 +1800,72 @@ int CLuaDrawingDefs::DxRemoveShaderFromSceneViewWorldTexture(lua_State* luaVM)
     return 1;
 }
 
+int CLuaDrawingDefs::DxSetSceneViewOutputShader(lua_State* luaVM)
+{
+    CClientSceneView* pSceneView = nullptr;
+    CClientShader*    pShader = nullptr;
+    SString           strInputName = "SceneViewTexture";
+    CScriptArgReader  argStream(luaVM);
+    argStream.ReadUserData(pSceneView);
+    argStream.ReadUserData(pShader);
+    argStream.ReadString(strInputName, strInputName);
+
+    if (!argStream.HasErrors() && strInputName.empty())
+        argStream.SetCustomError("input parameter name cannot be empty", "Bad argument");
+
+    if (!argStream.HasErrors())
+    {
+        CLuaMain*      pLuaMain = m_pLuaManager->GetVirtualMachine(luaVM);
+        CResource*     pResource = pLuaMain ? pLuaMain->GetResource() : nullptr;
+        CClientEntity* pResourceRoot = pResource ? pResource->GetResourceDynamicEntity() : nullptr;
+        if (!pResourceRoot || !pResourceRoot->IsMyChild(pShader, true) || !pResourceRoot->IsMyChild(pSceneView, true))
+        {
+            m_pScriptDebugging->LogCustom(luaVM, "dxSetSceneViewOutputShader: shader and scene view must belong to this resource");
+            lua_pushboolean(luaVM, false);
+            return 1;
+        }
+
+        CClientRenderElementManager* pManager = g_pClientGame->GetManager()->GetRenderElementManager();
+        const bool                   bSet = pManager->SetSceneViewOutputShader(pSceneView, pShader->GetShaderItem(), strInputName);
+        if (!bSet)
+            m_pScriptDebugging->LogCustom(
+                luaVM, SString("dxSetSceneViewOutputShader: texture parameter '%s' is missing or the intermediate target could not be created", *strInputName));
+        lua_pushboolean(luaVM, bSet);
+        return 1;
+    }
+
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxRemoveSceneViewOutputShader(lua_State* luaVM)
+{
+    CClientSceneView* pSceneView = nullptr;
+    CScriptArgReader  argStream(luaVM);
+    argStream.ReadUserData(pSceneView);
+    if (!argStream.HasErrors())
+    {
+        CLuaMain*      pLuaMain = m_pLuaManager->GetVirtualMachine(luaVM);
+        CResource*     pResource = pLuaMain ? pLuaMain->GetResource() : nullptr;
+        CClientEntity* pResourceRoot = pResource ? pResource->GetResourceDynamicEntity() : nullptr;
+        if (!pResourceRoot || !pResourceRoot->IsMyChild(pSceneView, true))
+        {
+            m_pScriptDebugging->LogCustom(luaVM, "dxRemoveSceneViewOutputShader: scene view must belong to this resource");
+            lua_pushboolean(luaVM, false);
+            return 1;
+        }
+
+        pSceneView->ClearOutputShader();
+        lua_pushboolean(luaVM, true);
+        return 1;
+    }
+
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
 int CLuaDrawingDefs::DxGetSceneViewTexture(lua_State* luaVM)
 {
     CClientSceneView* pSceneView = nullptr;
@@ -1821,7 +1891,7 @@ int CLuaDrawingDefs::DxGetSceneViewInfo(lua_State* luaVM)
     if (!argStream.HasErrors())
     {
         CRenderTargetItem* pTarget = pSceneView->GetRenderTargetItem();
-        lua_createtable(luaVM, 0, 10);
+        lua_createtable(luaVM, 0, 12);
 #define PUSH_SCENE_VIEW_FIELD(Name, PushCall) \
     lua_pushstring(luaVM, Name); \
     PushCall; \
@@ -1831,6 +1901,8 @@ int CLuaDrawingDefs::DxGetSceneViewInfo(lua_State* luaVM)
         PUSH_SCENE_VIEW_FIELD("fov", lua_pushnumber(luaVM, pSceneView->GetFOV()));
         PUSH_SCENE_VIEW_FIELD("renderRequested", lua_pushboolean(luaVM, pSceneView->IsRenderRequested()));
         PUSH_SCENE_VIEW_FIELD("lastRenderSucceeded", lua_pushboolean(luaVM, pSceneView->DidLastRenderSucceed()));
+        PUSH_SCENE_VIEW_FIELD("outputShaderActive", lua_pushboolean(luaVM, pSceneView->GetOutputShaderItem() != nullptr));
+        PUSH_SCENE_VIEW_FIELD("lastRenderError", lua_pushstring(luaVM, pSceneView->GetLastRenderError()));
         const char* szUpdateMode = "manual";
         switch (pSceneView->GetUpdateMode())
         {

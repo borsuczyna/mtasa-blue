@@ -76,10 +76,12 @@ DWORD RETURN_CPed_IsPlayer = 0x5DF8F6;
 #define HOOKPOS_CollisionStreamRead       0x41B1D0
 DWORD RETURN_CollisionStreamRead = 0x41B1D6;
 
-#define CALL_Render3DStuff             0x53EABF
-#define FUNC_Render3DStuff             0x53DF40
-#define FUNC_ConstructRenderList       0x5556E0
-#define VAR_MirrorsRenderingReflection 0xC7C728
+#define CALL_Render3DStuff                   0x53EABF
+#define FUNC_Render3DStuff                   0x53DF40
+#define FUNC_ConstructRenderList             0x5556E0
+#define FUNC_CRendererPreRender              0x553910
+#define FUNC_CWorldProcessPedsAfterPreRender 0x563430
+#define VAR_MirrorsRenderingReflection       0xC7C728
 
 // The native per-frame sequence calls RenderScene() (FUNC_Render3DStuff above) then, still inside the same
 // RwCameraBeginUpdate/EndUpdate bracket, a second and entirely distinct function that draws particles,
@@ -2739,27 +2741,41 @@ namespace
 
 bool CMultiplayerSA::RenderSecondaryScene()
 {
+    m_strLastSecondarySceneRenderError.clear();
     // World rendering owns many GTA globals and is not re-entrant. The caller supplies scoped camera/D3D
     // state, while this guard guarantees that a sky/world hook cannot recursively start another scene.
     static bool s_bRenderingSecondaryScene = false;
     if (s_bRenderingSecondaryScene)
+    {
+        m_strLastSecondarySceneRenderError = "recursive secondary scene render rejected";
         return false;
+    }
 
     if (!g_pCore || !g_pCore->GetGraphics())
+    {
+        m_strLastSecondarySceneRenderError = "graphics interface unavailable";
         return false;
+    }
 
     IDirect3DDevice9* pDevice = g_pCore->GetGraphics()->GetDevice();
     if (!pDevice)
+    {
+        m_strLastSecondarySceneRenderError = "D3D9 device unavailable";
         return false;
+    }
 
     // The scene view's own D3D9 color surface - already bound by BeginSceneViewRender before this call.
     IDirect3DSurface9* pFinalColorSurface = nullptr;
     if (FAILED(pDevice->GetRenderTarget(0, &pFinalColorSurface)) || !pFinalColorSurface)
+    {
+        m_strLastSecondarySceneRenderError = "could not acquire SceneView color target";
         return false;
+    }
 
     D3DSURFACE_DESC finalDesc;
     if (FAILED(pFinalColorSurface->GetDesc(&finalDesc)))
     {
+        m_strLastSecondarySceneRenderError = "could not query SceneView color target";
         SAFE_RELEASE(pFinalColorSurface);
         return false;
     }
@@ -2786,6 +2802,7 @@ bool CMultiplayerSA::RenderSecondaryScene()
 
         if (!m_pSecondarySceneColorRaster || !m_pSecondarySceneDepthRaster)
         {
+            m_strLastSecondarySceneRenderError = "could not create secondary RenderWare rasters";
             ReleaseSecondarySceneResources();
             SAFE_RELEASE(pFinalColorSurface);
             return false;
@@ -2799,6 +2816,7 @@ bool CMultiplayerSA::RenderSecondaryScene()
     RwCamera*           pRwCamera = pCameraInterface->m_pRwCamera;
     if (!pRwCamera)
     {
+        m_strLastSecondarySceneRenderError = "RenderWare camera unavailable";
         SAFE_RELEASE(pFinalColorSurface);
         return false;
     }
@@ -2828,7 +2846,17 @@ bool CMultiplayerSA::RenderSecondaryScene()
     struct CScopedCameraRasters
     {
         CScopedCameraRasters(RwCamera* pCamera, RwRaster* pColor, RwRaster* pDepth)
-            : m_pCamera(pCamera), m_pPreviousColor(pCamera->bufferColor), m_pPreviousDepth(pCamera->bufferDepth)
+            : m_pCamera(pCamera),
+              m_pPreviousColor(pCamera->bufferColor),
+              m_pPreviousDepth(pCamera->bufferDepth),
+              m_PreviousScreen(pCamera->screen),
+              m_PreviousScreenInverse(pCamera->screenInverse),
+              m_PreviousScreenOffset(pCamera->screenOffset),
+              m_fPreviousNearPlane(pCamera->nearplane),
+              m_fPreviousFarPlane(pCamera->farplane),
+              m_fPreviousFogPlane(pCamera->fog),
+              m_fPreviousUnknown1(pCamera->unknown1),
+              m_fPreviousUnknown2(pCamera->unknown2)
         {
             m_pCamera->bufferColor = pColor;
             m_pCamera->bufferDepth = pDepth;
@@ -2840,11 +2868,27 @@ bool CMultiplayerSA::RenderSecondaryScene()
                 RwCameraEndUpdate(m_pCamera);
             m_pCamera->bufferColor = m_pPreviousColor;
             m_pCamera->bufferDepth = m_pPreviousDepth;
+            m_pCamera->screen = m_PreviousScreen;
+            m_pCamera->screenInverse = m_PreviousScreenInverse;
+            m_pCamera->screenOffset = m_PreviousScreenOffset;
+            m_pCamera->nearplane = m_fPreviousNearPlane;
+            m_pCamera->farplane = m_fPreviousFarPlane;
+            m_pCamera->fog = m_fPreviousFogPlane;
+            m_pCamera->unknown1 = m_fPreviousUnknown1;
+            m_pCamera->unknown2 = m_fPreviousUnknown2;
         }
 
         RwCamera* m_pCamera;
         RwRaster* m_pPreviousColor;
         RwRaster* m_pPreviousDepth;
+        RwV2d     m_PreviousScreen;
+        RwV2d     m_PreviousScreenInverse;
+        RwV2d     m_PreviousScreenOffset;
+        float     m_fPreviousNearPlane;
+        float     m_fPreviousFarPlane;
+        float     m_fPreviousFogPlane;
+        float     m_fPreviousUnknown1;
+        float     m_fPreviousUnknown2;
         bool      m_bUpdateActive{};
     } cameraRasters(pRwCamera, m_pSecondarySceneColorRaster, m_pSecondarySceneDepthRaster);
 
@@ -2865,6 +2909,17 @@ bool CMultiplayerSA::RenderSecondaryScene()
         // lists after applying the secondary camera; changing only camera matrices would otherwise combine
         // the new dynamic-entity view with static world geometry selected for the primary camera.
         reinterpret_cast<void(__cdecl*)()>(FUNC_ConstructRenderList)();
+
+        // ConstructRenderList only selects entities. GTA's native frame then runs PreRender before drawing;
+        // that stage updates the custom building day/night pipeline's pre-lit vertex colors and prepares
+        // camera-dependent entity data. Skipping it made secondary passes reuse mesh diffuse colors prepared
+        // for a previous camera/frame, while also leaving model-info pre-render flags in a state that changed
+        // what subsequent SceneViews and the primary camera received. The primary frame constructs and
+        // pre-renders its own lists again after all queued SceneViews, so these shared values are replaced
+        // before the normal world draw.
+        reinterpret_cast<void(__cdecl*)()>(FUNC_CRendererPreRender)();
+        reinterpret_cast<void(__cdecl*)()>(FUNC_CWorldProcessPedsAfterPreRender)();
+
         reinterpret_cast<void(__cdecl*)()>(FUNC_Render3DStuff)();
 
         // Drain the same global weapon-ped draw queue RenderScene just fed, into our own still-active target,
@@ -2880,6 +2935,8 @@ bool CMultiplayerSA::RenderSecondaryScene()
         cameraRasters.m_bUpdateActive = false;
         bRendered = true;
     }
+    else
+        m_strLastSecondarySceneRenderError = "RwCameraBeginUpdate failed";
 
     if (bRendered && pSecondaryColorSurface)
     {
@@ -2890,7 +2947,50 @@ bool CMultiplayerSA::RenderSecondaryScene()
         // to scripts. RwRasterCreate picks the raster's pixel format to match the display, which will not
         // always equal a script-requested dxCreateSceneView colorFormat; StretchRect between mismatched
         // formats is driver-dependent, so a failure here is reported rather than assumed to have succeeded.
-        bRendered = SUCCEEDED(pDevice->StretchRect(pSecondaryColorSurface, nullptr, pFinalColorSurface, nullptr, D3DTEXF_NONE));
+        // RenderScene and RenderEffects bind their own textures after the outer render-target scope cleared
+        // script samplers. DX9 rejects StretchRect when either participating texture is still visible to a
+        // sampler, so remove all pixel/vertex bindings immediately before publishing the RW raster. The
+        // caller's CRenderStateScope restores the pre-SceneView sampler state afterwards.
+        for (DWORD i = 0; i < 16; ++i)
+            pDevice->SetTexture(i, nullptr);
+        for (DWORD i = 0; i < 4; ++i)
+            pDevice->SetTexture(D3DVERTEXTEXTURESAMPLER0 + i, nullptr);
+
+        const HRESULT hResult = pDevice->StretchRect(pSecondaryColorSurface, nullptr, pFinalColorSurface, nullptr, D3DTEXF_NONE);
+        bRendered = SUCCEEDED(hResult);
+        if (!bRendered)
+        {
+            D3DSURFACE_DESC secondaryDesc{};
+            D3DSURFACE_DESC destinationDesc{};
+            pSecondaryColorSurface->GetDesc(&secondaryDesc);
+            pFinalColorSurface->GetDesc(&destinationDesc);
+            IDirect3DSurface9* pCurrentTarget = nullptr;
+            pDevice->GetRenderTarget(0, &pCurrentTarget);
+            const char* szCurrent = pCurrentTarget == pSecondaryColorSurface ? "source" : (pCurrentTarget == pFinalColorSurface ? "destination" : "other");
+            SAFE_RELEASE(pCurrentTarget);
+
+            // Differential probe: isolate whether the driver rejects the RW source, the SceneView
+            // destination, or only this direct surface pair. This also provides a safe explicit fallback
+            // when both independently valid copies succeed.
+            IDirect3DSurface9* pProbeSurface = nullptr;
+            const HRESULT hCreateProbe = pDevice->CreateRenderTarget(destinationDesc.Width, destinationDesc.Height, destinationDesc.Format, D3DMULTISAMPLE_NONE,
+                                                                     0, FALSE, &pProbeSurface, nullptr);
+            const HRESULT hSourceToProbe =
+                SUCCEEDED(hCreateProbe) ? pDevice->StretchRect(pSecondaryColorSurface, nullptr, pProbeSurface, nullptr, D3DTEXF_NONE) : hCreateProbe;
+            const HRESULT hProbeToDestination =
+                SUCCEEDED(hSourceToProbe) ? pDevice->StretchRect(pProbeSurface, nullptr, pFinalColorSurface, nullptr, D3DTEXF_NONE) : hSourceToProbe;
+            bRendered = SUCCEEDED(hSourceToProbe) && SUCCEEDED(hProbeToDestination);
+            if (!bRendered)
+                m_strLastSecondarySceneRenderError = SString("copy direct=%08x current=%s probe(create=%08x a=%08x b=%08x)", hResult, szCurrent, hCreateProbe,
+                                                             hSourceToProbe, hProbeToDestination);
+            SAFE_RELEASE(pProbeSurface);
+        }
+    }
+
+    if (bRendered && !pSecondaryColorSurface)
+    {
+        bRendered = false;
+        m_strLastSecondarySceneRenderError = "RenderWare camera did not expose its color surface";
     }
 
     SAFE_RELEASE(pSecondaryColorSurface);
