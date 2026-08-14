@@ -50,6 +50,7 @@ void CLuaDrawingDefs::LoadFunctions()
         {"dxCreateMrtSet", DxCreateMrtSet},
         {"dxCreateSceneView", DxCreateSceneView},
         {"dxSetSceneViewCamera", DxSetSceneViewCamera},
+        {"dxSetSceneViewMatrix", DxSetSceneViewMatrix},
         {"dxRequestSceneViewRender", DxRequestSceneViewRender},
         {"dxSetSceneViewUpdateMode", DxSetSceneViewUpdateMode},
         {"dxApplyShaderToSceneViewWorldTexture", DxApplyShaderToSceneViewWorldTexture},
@@ -203,6 +204,7 @@ void CLuaDrawingDefs::AddDxSceneViewClass(lua_State* luaVM)
     lua_newclass(luaVM);
     lua_classfunction(luaVM, "create", "dxCreateSceneView");
     lua_classfunction(luaVM, "setCamera", "dxSetSceneViewCamera");
+    lua_classfunction(luaVM, "setMatrix", "dxSetSceneViewMatrix");
     lua_classfunction(luaVM, "requestRender", "dxRequestSceneViewRender");
     lua_classfunction(luaVM, "setUpdateMode", "dxSetSceneViewUpdateMode");
     lua_classfunction(luaVM, "setOutputShader", "dxSetSceneViewOutputShader");
@@ -1658,6 +1660,56 @@ int CLuaDrawingDefs::DxSetSceneViewCamera(lua_State* luaVM)
         matrix.vPos = position;
         matrix.vFront = front;
         matrix.vUp = up;
+        matrix.OrthoNormalize(CMatrix::AXIS_FRONT, CMatrix::AXIS_UP);
+        pSceneView->SetCamera(matrix, fFOV);
+        lua_pushboolean(luaVM, true);
+        return 1;
+    }
+
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxSetSceneViewMatrix(lua_State* luaVM)
+{
+    CClientSceneView* pSceneView = nullptr;
+    CMatrix           matrix;
+    float             fFOV = 70.0f;
+
+    CScriptArgReader argStream(luaVM);
+    argStream.ReadUserData(pSceneView);
+    if (argStream.NextIsTable())
+    {
+        if (!ReadMatrix(luaVM, argStream.m_iIndex, matrix))
+            argStream.SetCustomError("matrix must be a 4 x 4 matrix table", "Bad argument");
+        else
+            ++argStream.m_iIndex;
+    }
+    else
+        argStream.ReadMatrix(matrix);
+    argStream.ReadNumber(fFOV, 70.0f);
+
+    const auto isFiniteVector = [](const CVector& vector) { return std::isfinite(vector.fX) && std::isfinite(vector.fY) && std::isfinite(vector.fZ); };
+
+    if (!argStream.HasErrors() &&
+        (!isFiniteVector(matrix.vPos) || !isFiniteVector(matrix.vRight) || !isFiniteVector(matrix.vFront) || !isFiniteVector(matrix.vUp)))
+        argStream.SetCustomError("matrix contains a non-finite component", "Bad argument");
+
+    CVector right = matrix.vRight;
+    CVector front = matrix.vFront;
+    CVector up = matrix.vUp;
+    if (!argStream.HasErrors() && (right.Normalize() == 0.0f || front.Normalize() == 0.0f || up.Normalize() == 0.0f ||
+                                   fabs(right.DotProduct(&front)) > 0.999f || fabs(right.DotProduct(&up)) > 0.999f || fabs(front.DotProduct(&up)) > 0.999f))
+        argStream.SetCustomError("matrix axes must define a valid camera orientation", "Bad argument");
+    if (!argStream.HasErrors() && (!std::isfinite(fFOV) || fFOV < 1.0f || fFOV > 179.0f))
+        argStream.SetCustomError("field of view must be between 1 and 179 degrees", "Bad argument");
+
+    if (!argStream.HasErrors())
+    {
+        // Keep the supplied forward direction as the primary camera axis and orthogonalize the remaining
+        // basis. This accepts small floating-point drift from tracked element matrices without allowing a
+        // skewed or singular camera transform into GTA and RenderWare's shared camera state.
         matrix.OrthoNormalize(CMatrix::AXIS_FRONT, CMatrix::AXIS_UP);
         pSceneView->SetCamera(matrix, fFOV);
         lua_pushboolean(luaVM, true);

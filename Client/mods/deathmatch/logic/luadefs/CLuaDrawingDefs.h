@@ -63,6 +63,7 @@ public:
     LUA_DECLARE(DxCreateMrtSet);
     LUA_DECLARE(DxCreateSceneView);
     LUA_DECLARE(DxSetSceneViewCamera);
+    LUA_DECLARE(DxSetSceneViewMatrix);
     LUA_DECLARE(DxRequestSceneViewRender);
     LUA_DECLARE(DxSetSceneViewUpdateMode);
     LUA_DECLARE(DxApplyShaderToSceneViewWorldTexture);
