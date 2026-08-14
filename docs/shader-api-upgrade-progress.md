@@ -34,9 +34,8 @@ Debug Win32 compilation succeeds. The `dx9_foundation_test` resource passed in-g
 
 ## Stage 2 — Multiple scheduled scene views
 
-- [ ] Raise scene-view cap + update modes (in-progress — the first bounded scheduler raises the shared create/render/capability limit to two and drains both requested views sequentially at the existing safe pre-`ConstructRenderList` point. Debug Win32 builds and in-game two-camera isolation pass. `dxSetSceneViewUpdateMode` adds backward-compatible `manual`, `once`, `always`, `every_n_frames` and millisecond `interval` scheduling; in-game throttling tests pass. The public SceneView texture is intentionally not cleared before the private RW pass, so throttled views retain their last complete frame until the replacement copy finishes. Priorities and larger budgets remain pending.)
+- [x] Raise scene-view cap + update modes (done for the current two-view scope — the shared create/render/capability limit is two and both views drain sequentially at the safe pre-`ConstructRenderList` point. Debug Win32 builds, two-camera isolation and throttled-mode tests pass. `dxSetSceneViewUpdateMode` supports `manual`, `once`, `always`, `every_n_frames` and millisecond `interval`. The public output retains its last complete frame until replacement copying finishes. Resolution and pixel count do not affect scheduling.)
 - [ ] Per-view GPU-time accounting (`CGpuQueryManager`) (pending)
-- [ ] Budget-exceeded rejection (pending)
 - [ ] Isolated per-SceneView world-material shader assignments that ignore primary/other-view shader maps (planned)
 - [ ] SceneView output post-process chain using safe render passes and ping-pong targets; `dxGetSceneViewTexture` remains a plain getter (planned)
 
