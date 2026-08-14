@@ -51,6 +51,8 @@ void CLuaDrawingDefs::LoadFunctions()
         {"dxCreateSceneView", DxCreateSceneView},
         {"dxSetSceneViewCamera", DxSetSceneViewCamera},
         {"dxSetSceneViewMatrix", DxSetSceneViewMatrix},
+        {"dxSetSceneViewOrthographicProjection", DxSetSceneViewOrthographicProjection},
+        {"dxSetSceneViewPerspectiveProjection", DxSetSceneViewPerspectiveProjection},
         {"dxRequestSceneViewRender", DxRequestSceneViewRender},
         {"dxSetSceneViewUpdateMode", DxSetSceneViewUpdateMode},
         {"engineApplyShaderToSceneViewWorldTexture", EngineApplyShaderToSceneViewWorldTexture},
@@ -1721,6 +1723,58 @@ int CLuaDrawingDefs::DxSetSceneViewMatrix(lua_State* luaVM)
     return 1;
 }
 
+int CLuaDrawingDefs::DxSetSceneViewOrthographicProjection(lua_State* luaVM)
+{
+    //  bool dxSetSceneViewOrthographicProjection ( sceneView theSceneView, float width, float height, float nearClip, float farClip )
+    CClientSceneView* pSceneView = nullptr;
+    float             fWidth = 0.0f;
+    float             fHeight = 0.0f;
+    float             fNearClip = 0.0f;
+    float             fFarClip = 0.0f;
+
+    CScriptArgReader argStream(luaVM);
+    argStream.ReadUserData(pSceneView);
+    argStream.ReadNumber(fWidth);
+    argStream.ReadNumber(fHeight);
+    argStream.ReadNumber(fNearClip);
+    argStream.ReadNumber(fFarClip);
+
+    if (!argStream.HasErrors() && (!std::isfinite(fWidth) || !std::isfinite(fHeight) || fWidth <= 0.0f || fHeight <= 0.0f))
+        argStream.SetCustomError("width and height must be finite and greater than zero", "Bad argument");
+    if (!argStream.HasErrors() && (!std::isfinite(fNearClip) || !std::isfinite(fFarClip) || fNearClip <= 0.0f || fFarClip <= fNearClip))
+        argStream.SetCustomError("nearClip must be greater than zero and less than farClip", "Bad argument");
+
+    if (!argStream.HasErrors())
+    {
+        pSceneView->SetOrthographicProjection(fWidth, fHeight, fNearClip, fFarClip);
+        lua_pushboolean(luaVM, true);
+        return 1;
+    }
+
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxSetSceneViewPerspectiveProjection(lua_State* luaVM)
+{
+    //  bool dxSetSceneViewPerspectiveProjection ( sceneView theSceneView )
+    CClientSceneView* pSceneView = nullptr;
+    CScriptArgReader  argStream(luaVM);
+    argStream.ReadUserData(pSceneView);
+
+    if (!argStream.HasErrors())
+    {
+        pSceneView->SetPerspectiveProjection();
+        lua_pushboolean(luaVM, true);
+        return 1;
+    }
+
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
 int CLuaDrawingDefs::DxRequestSceneViewRender(lua_State* luaVM)
 {
     CClientSceneView* pSceneView = nullptr;
@@ -1952,7 +2006,7 @@ int CLuaDrawingDefs::DxGetSceneViewInfo(lua_State* luaVM)
     if (!argStream.HasErrors())
     {
         CRenderTargetItem* pTarget = pSceneView->GetRenderTargetItem();
-        lua_createtable(luaVM, 0, 12);
+        lua_createtable(luaVM, 0, 13);
 #define PUSH_SCENE_VIEW_FIELD(Name, PushCall) \
     lua_pushstring(luaVM, Name); \
     PushCall; \
@@ -1960,6 +2014,7 @@ int CLuaDrawingDefs::DxGetSceneViewInfo(lua_State* luaVM)
         PUSH_SCENE_VIEW_FIELD("width", lua_pushnumber(luaVM, pTarget->m_uiSizeX));
         PUSH_SCENE_VIEW_FIELD("height", lua_pushnumber(luaVM, pTarget->m_uiSizeY));
         PUSH_SCENE_VIEW_FIELD("fov", lua_pushnumber(luaVM, pSceneView->GetFOV()));
+        PUSH_SCENE_VIEW_FIELD("orthographic", lua_pushboolean(luaVM, pSceneView->IsOrthographic()));
         PUSH_SCENE_VIEW_FIELD("renderRequested", lua_pushboolean(luaVM, pSceneView->IsRenderRequested()));
         PUSH_SCENE_VIEW_FIELD("lastRenderSucceeded", lua_pushboolean(luaVM, pSceneView->DidLastRenderSucceed()));
         PUSH_SCENE_VIEW_FIELD("outputShaderActive", lua_pushboolean(luaVM, pSceneView->GetOutputShaderItem() != nullptr));

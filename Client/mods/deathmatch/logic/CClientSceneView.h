@@ -52,6 +52,25 @@ public:
         m_bCameraConfigured = true;
     }
 
+    // Explicit projection mode, independent of camera position/orientation above. Perspective (using
+    // m_fFOV) remains the default - orthographic is strictly opt-in and never assumed. Validation
+    // (finite, positive width/height/near/far, far > near) is the Lua binding's responsibility, matching
+    // every other SceneView setter in this class.
+    void SetOrthographicProjection(float fWidth, float fHeight, float fNearClip, float fFarClip)
+    {
+        m_bOrthographic = true;
+        m_fOrthoWidth = fWidth;
+        m_fOrthoHeight = fHeight;
+        m_fOrthoNearClip = fNearClip;
+        m_fOrthoFarClip = fFarClip;
+    }
+    void  SetPerspectiveProjection() { m_bOrthographic = false; }
+    bool  IsOrthographic() const { return m_bOrthographic; }
+    float GetOrthographicWidth() const { return m_fOrthoWidth; }
+    float GetOrthographicHeight() const { return m_fOrthoHeight; }
+    float GetOrthographicNearClip() const { return m_fOrthoNearClip; }
+    float GetOrthographicFarClip() const { return m_fOrthoFarClip; }
+
     void RequestRender() { m_bRenderRequested = true; }
     bool IsRenderRequested() const { return m_bRenderRequested; }
     bool IsCameraConfigured() const { return m_bCameraConfigured; }
@@ -185,6 +204,11 @@ private:
     bool                                    m_bRenderRequested;
     bool                                    m_bLastRenderSucceeded;
     bool                                    m_bCameraConfigured = false;
+    bool                                    m_bOrthographic = false;
+    float                                   m_fOrthoWidth = 0.0f;
+    float                                   m_fOrthoHeight = 0.0f;
+    float                                   m_fOrthoNearClip = 0.0f;
+    float                                   m_fOrthoFarClip = 0.0f;
     ESceneViewUpdateMode                    m_UpdateMode = ESceneViewUpdateMode::MANUAL;
     uint                                    m_uiUpdateValue = 0;
     uint                                    m_uiRenderCount = 0;

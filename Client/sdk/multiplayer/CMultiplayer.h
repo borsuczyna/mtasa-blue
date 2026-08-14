@@ -389,6 +389,10 @@ public:
     virtual void SetRender3DStuffHandler(Render3DStuffHandler* pHandler) = 0;
     virtual void SetPreRenderSkyHandler(PreRenderSkyHandler* pHandler) = 0;
     virtual void SetPreConstructRenderListHandler(PreConstructRenderListHandler* pHandler) = 0;
+    // Consumed by the next RenderSecondaryScene() call only - set immediately before it, mirroring
+    // CRenderItemManagerInterface::SetSceneViewShaderContext's scoped-per-render-context pattern.
+    // Orthographic width/height are the full (not half) view volume extents in world units.
+    virtual void SetSceneViewProjection(bool bOrthographic, float fWidth, float fHeight, float fNearClip, float fFarClip) = 0;
     virtual bool RenderSecondaryScene() = 0;
     virtual void ReleaseSecondarySceneResources() = 0;
     virtual void SetRenderHeliLightHandler(RenderHeliLightHandler* pHandler) = 0;

@@ -113,14 +113,20 @@ DWORD RETURN_CollisionStreamRead = 0x41B1D6;
 // happens to be currently bound.
 #define VAR_TheCameraInterface 0xB6F028
 
-#define FUNC_RwCameraCreate          0x7EE4F0
-#define FUNC_RwCameraDestroy         0x7EE4B0
-#define FUNC_RwObjectSetFrame        0x804EF0
-#define FUNC_RpWorldAddCamera        0x750F20
-#define FUNC_RpWorldRemoveCamera     0x750F50
-#define FUNC_CopyCameraMatrixToRWCam 0x50AFA0
-#define FUNC_CameraCalculateDerived  0x5150E0
-#define FUNC_SetRenderWareCamera     0x7328C0
+#define FUNC_RwCameraCreate  0x7EE4F0
+#define FUNC_RwCameraDestroy 0x7EE4B0
+// RW camera projection setters (real RenderWare library entry points, same 0x7EE1xx-0x7EE4xx cluster as the
+// other RwCamera* functions above). RwCameraSetViewWindow takes HALF the view volume width/height.
+#define FUNC_RwCameraSetProjection    0x7EE3A0
+#define FUNC_RwCameraSetViewWindow    0x7EE410
+#define FUNC_RwCameraSetNearClipPlane 0x7EE1D0
+#define FUNC_RwCameraSetFarClipPlane  0x7EE2A0
+#define FUNC_RwObjectSetFrame         0x804EF0
+#define FUNC_RpWorldAddCamera         0x750F20
+#define FUNC_RpWorldRemoveCamera      0x750F50
+#define FUNC_CopyCameraMatrixToRWCam  0x50AFA0
+#define FUNC_CameraCalculateDerived   0x5150E0
+#define FUNC_SetRenderWareCamera      0x7328C0
 
 #define ARRAY_ModelInfo 0xA9B0C8
 #define MAX_MODEL_INFOS 20000
@@ -2768,6 +2774,15 @@ namespace
     }
 }  // namespace
 
+void CMultiplayerSA::SetSceneViewProjection(bool bOrthographic, float fWidth, float fHeight, float fNearClip, float fFarClip)
+{
+    m_bSecondarySceneOrthographic = bOrthographic;
+    m_fSecondarySceneOrthoWidth = fWidth;
+    m_fSecondarySceneOrthoHeight = fHeight;
+    m_fSecondarySceneOrthoNearClip = fNearClip;
+    m_fSecondarySceneOrthoFarClip = fFarClip;
+}
+
 bool CMultiplayerSA::RenderSecondaryScene()
 {
     m_strLastSecondarySceneRenderError.clear();
@@ -2903,6 +2918,33 @@ bool CMultiplayerSA::RenderSecondaryScene()
         RwCamera**          m_ppSceneCamera;
         RwCamera*           m_pPreviousSceneCamera;
     } sceneCamera(pCameraInterface, pRwCamera);
+
+    // CameraCalculateDerived above always derives a perspective frustum from TheCamera's FOV - GTA's own
+    // camera model has no orthographic concept at all. Override the just-derived projection here, after
+    // CopyCameraMatrixToRWCam/CameraCalculateDerived have positioned the view matrix (still valid for an
+    // orthographic camera - only the projection shape differs) but before ConstructRenderList/RenderScene
+    // read the camera's frustum. Applied unconditionally (perspective included) because m_pSecondarySceneCamera
+    // is one physical RwCamera reused by every SceneView slot this frame; a prior orthographic render must
+    // not leak into a later perspective one sharing the same camera object.
+    //
+    // Known limitation: GTA's own coarse sector/entity visibility selection (ConstructRenderList) has no
+    // orthographic awareness either and still culls against TheCamera's FOV-based frustum computed above.
+    // An orthographic SceneView's candidate entity list may therefore be a superset of what a tightly-fit
+    // orthographic frustum would select; RenderWare's own per-object frustum test during RenderScene uses
+    // the corrected projection set here, so this affects draw-call count, not the correctness of what's
+    // actually drawn.
+    if (m_bSecondarySceneOrthographic)
+    {
+        const RwV2d viewWindow = {m_fSecondarySceneOrthoWidth * 0.5f, m_fSecondarySceneOrthoHeight * 0.5f};
+        reinterpret_cast<RwCamera*(__cdecl*)(RwCamera*, RwCameraType)>(FUNC_RwCameraSetProjection)(pRwCamera, RW_CAMERA_ORTHOGRAPHIC);
+        reinterpret_cast<RwCamera*(__cdecl*)(RwCamera*, const RwV2d*)>(FUNC_RwCameraSetViewWindow)(pRwCamera, &viewWindow);
+        reinterpret_cast<RwCamera*(__cdecl*)(RwCamera*, float)>(FUNC_RwCameraSetNearClipPlane)(pRwCamera, m_fSecondarySceneOrthoNearClip);
+        reinterpret_cast<RwCamera*(__cdecl*)(RwCamera*, float)>(FUNC_RwCameraSetFarClipPlane)(pRwCamera, m_fSecondarySceneOrthoFarClip);
+    }
+    else
+    {
+        reinterpret_cast<RwCamera*(__cdecl*)(RwCamera*, RwCameraType)>(FUNC_RwCameraSetProjection)(pRwCamera, RW_CAMERA_PERSPECTIVE);
+    }
 
     // CEntity::PreRender mutates state shared by every instance of a model. In particular, it increases
     // CBaseModelInfo::m_nAlpha by 16 and flips bHasBeenPreRendered. Repeating that stage for multiple

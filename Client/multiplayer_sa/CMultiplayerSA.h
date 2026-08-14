@@ -279,6 +279,7 @@ public:
     void           SetRender3DStuffHandler(Render3DStuffHandler* pHandler);
     void           SetPreRenderSkyHandler(PreRenderSkyHandler* pHandler);
     void           SetPreConstructRenderListHandler(PreConstructRenderListHandler* pHandler) override;
+    void           SetSceneViewProjection(bool bOrthographic, float fWidth, float fHeight, float fNearClip, float fFarClip) override;
     bool           RenderSecondaryScene() override;
     const SString& GetLastSecondarySceneRenderError() const override { return m_strLastSecondarySceneRenderError; }
     void           ReleaseSecondarySceneResources() override;
@@ -400,6 +401,16 @@ private:
     IDirect3DSurface9* m_pSecondaryScenePostFxSurface{};
 
     void ApplySecondarySceneColourFilter(IDirect3DDevice9* pDevice, IDirect3DSurface9* pColorSurface, UINT uiWidth, UINT uiHeight);
+
+    // Set by SetSceneViewProjection immediately before RenderSecondaryScene consumes it. m_pSecondarySceneCamera
+    // is a single RwCamera object reused sequentially by every SceneView slot each frame, so projection mode is
+    // applied unconditionally on every render (never conditionally skipped) - otherwise an orthographic view
+    // this frame would leak its projection into a later perspective view sharing the same camera object.
+    bool  m_bSecondarySceneOrthographic{};
+    float m_fSecondarySceneOrthoWidth{};
+    float m_fSecondarySceneOrthoHeight{};
+    float m_fSecondarySceneOrthoNearClip{};
+    float m_fSecondarySceneOrthoFarClip{};
 
     std::vector<char>   m_PlayerImgCache;
     EFastClothesLoading m_FastClothesLoading;

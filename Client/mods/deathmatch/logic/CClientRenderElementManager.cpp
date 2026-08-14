@@ -334,6 +334,8 @@ bool CClientRenderElementManager::RenderRequestedSceneView()
                 CRenderItemManagerInterface* m_pManager;
             } shaderContext(m_pRenderItemManager, pSceneView->GetShaderAssignments());
 
+            g_pMultiplayer->SetSceneViewProjection(pSceneView->IsOrthographic(), pSceneView->GetOrthographicWidth(), pSceneView->GetOrthographicHeight(),
+                                                   pSceneView->GetOrthographicNearClip(), pSceneView->GetOrthographicFarClip());
             bRendered = g_pMultiplayer->RenderSecondaryScene();
             if (!bRendered)
                 pSceneView->SetLastRenderError(g_pMultiplayer->GetLastSecondarySceneRenderError());

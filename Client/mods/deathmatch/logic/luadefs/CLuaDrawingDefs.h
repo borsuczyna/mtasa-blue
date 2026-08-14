@@ -64,6 +64,8 @@ public:
     LUA_DECLARE(DxCreateSceneView);
     LUA_DECLARE(DxSetSceneViewCamera);
     LUA_DECLARE(DxSetSceneViewMatrix);
+    LUA_DECLARE(DxSetSceneViewOrthographicProjection);
+    LUA_DECLARE(DxSetSceneViewPerspectiveProjection);
     LUA_DECLARE(DxRequestSceneViewRender);
     LUA_DECLARE(DxSetSceneViewUpdateMode);
     LUA_DECLARE(EngineApplyShaderToSceneViewWorldTexture);
