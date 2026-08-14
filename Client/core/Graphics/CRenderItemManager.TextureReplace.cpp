@@ -85,6 +85,13 @@ SShaderItemLayers* CRenderItemManager::GetAppliedShaderForD3DData(CD3DDUMMY* pD3
     if (!m_pSceneViewShaderContext)
         return m_pRenderWare->GetAppliedShaderForD3DData(pD3DData);
 
+    // The isolated SceneView namespace is texture-based. A wildcard must not turn untextured immediate-mode
+    // geometry (sky, shadows and effects) into textured geometry by sampling whatever RenderWare happened to
+    // leave in stage 0. With animated UV shaders that stale binding appears as a moving copy of another part
+    // of the scene across otherwise untextured polygons.
+    if (!pD3DData)
+        return nullptr;
+
     // A SceneView context is an isolated replacement namespace: global world-texture assignments are not
     // consulted at all. This avoids mutating or cloning the global match-channel graph around a native GTA
     // render and guarantees that another view or the primary camera cannot observe these assignments.

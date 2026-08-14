@@ -81,6 +81,7 @@ DWORD RETURN_CollisionStreamRead = 0x41B1D6;
 #define FUNC_ConstructRenderList             0x5556E0
 #define FUNC_CRendererPreRender              0x553910
 #define FUNC_CWorldProcessPedsAfterPreRender 0x563430
+#define FUNC_CShadowsRenderStoredShadows     0x70A960
 #define VAR_MirrorsRenderingReflection       0xC7C728
 
 // The native per-frame sequence calls RenderScene() (FUNC_Render3DStuff above) then, still inside the same
@@ -2921,6 +2922,13 @@ bool CMultiplayerSA::RenderSecondaryScene()
         reinterpret_cast<void(__cdecl*)()>(FUNC_CWorldProcessPedsAfterPreRender)();
 
         reinterpret_cast<void(__cdecl*)()>(FUNC_Render3DStuff)();
+
+        // RenderScene skips stored shadows while the mirror/reflection flag is set, but PreRender has already
+        // appended this camera's ped/vehicle shadows to GTA's global queue. Native mirrors can rely on the
+        // primary pass consuming that queue; independent views cannot, because every view would append another
+        // copy and the primary camera would render all of them on top of one another. Render and clear the queue
+        // while this view's camera and target are still active.
+        reinterpret_cast<void(__cdecl*)()>(FUNC_CShadowsRenderStoredShadows)();
 
         // Drain the same global weapon-ped draw queue RenderScene just fed, into our own still-active target,
         // and clear it - matching both native call sites exactly - before anything else can flush it onto
