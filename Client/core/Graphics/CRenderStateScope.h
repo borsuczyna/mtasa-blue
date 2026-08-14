@@ -12,6 +12,7 @@
 #pragma once
 
 #include <CMatrix.h>
+#include <vector>
 
 class CCamera;
 class CCam;
@@ -83,7 +84,11 @@ private:
     D3DXMATRIX         m_SavedProjection;
     bool               m_bHasSavedTransforms;
 
-    bool    m_bCameraApplied;
-    CMatrix m_SavedCameraMatrix;
-    float   m_fSavedCameraFOV;
+    bool                       m_bCameraApplied;
+    CMatrix                    m_SavedCameraMatrix;
+    CVector                    m_SavedCamFront;
+    CVector                    m_SavedCamUp;
+    CVector                    m_SavedCamSource;
+    float                      m_fSavedCameraFOV;
+    std::vector<unsigned char> m_SavedNativeCameraState;
 };

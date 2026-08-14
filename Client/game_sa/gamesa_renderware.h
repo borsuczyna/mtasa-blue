@@ -102,6 +102,7 @@ typedef int(__cdecl* RwRasterDestroy_t)(RwRaster* raster);
 typedef RwCamera*(__cdecl* RwCameraBeginUpdate_t)(RwCamera* camera);
 typedef RwCamera*(__cdecl* RwCameraEndUpdate_t)(RwCamera* camera);
 typedef RwCamera*(__cdecl* RwCameraClear_t)(RwCamera* camera, RwColor* colour, int clearMode);
+typedef int(__cdecl* RwD3D9SetTransform_t)(unsigned int state, const void* matrix);
 typedef RwTexture*(__cdecl* RwTextureCreate_t)(RwRaster* raster);
 typedef RpMaterial*(__cdecl* RpMaterialSetTexture_t)(RpMaterial* mat, RwTexture* tex);
 typedef RpHAnimHierarchy*(__cdecl* GetAnimHierarchyFromClump_t)(RpClump*);
@@ -196,6 +197,7 @@ RWFUNC(RwRasterDestroy_t RwRasterDestroy, (RwRasterDestroy_t)0xDEAD)
 RWFUNC(RwCameraBeginUpdate_t RwCameraBeginUpdate, (RwCameraBeginUpdate_t)0xDEAD)
 RWFUNC(RwCameraEndUpdate_t RwCameraEndUpdate, (RwCameraEndUpdate_t)0xDEAD)
 RWFUNC(RwCameraClear_t RwCameraClear, (RwCameraClear_t)0xDEAD)
+RWFUNC(RwD3D9SetTransform_t RwD3D9SetTransform, (RwD3D9SetTransform_t)0xDEAD)
 RWFUNC(RwTextureCreate_t RwTextureCreate, (RwTextureCreate_t)0xDEAD)
 RWFUNC(RpMaterialSetTexture_t RpMaterialSetTexture, (RpMaterialSetTexture_t)0xDEAD)
 RWFUNC(GetAnimHierarchyFromClump_t GetAnimHierarchyFromClump, (GetAnimHierarchyFromClump_t)0xDEAD)

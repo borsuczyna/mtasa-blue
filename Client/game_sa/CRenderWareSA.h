@@ -119,6 +119,7 @@ public:
     void RwMatrixSetPosition(RwMatrix& rwInOutMatrix, const CVector& vecPosition);
     void RwMatrixGetScale(const RwMatrix& rwMatrix, CVector& vecOutScale);
     void RwMatrixSetScale(RwMatrix& rwInOutMatrix, const CVector& vecScale);
+    bool SetD3D9Transform(uint uiState, const void* pMatrix) override;
 
     // CRenderWareSA methods
     RwTexture*          RightSizeTexture(RwTexture* pTexture, uint uiSizeLimit, SString& strError);

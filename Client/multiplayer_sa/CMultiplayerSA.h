@@ -381,6 +381,9 @@ public:
 private:
     // These RenderWare-owned targets must outlive one world pass, but not the scene-view subsystem or the
     // D3D9 device. Keeping ownership here makes their reset/resource-stop lifetime explicit.
+    RwCamera* m_pSecondarySceneCamera{};
+    RwFrame*  m_pSecondarySceneCameraFrame{};
+    bool      m_bSecondarySceneCameraAddedToWorld{};
     RwRaster* m_pSecondarySceneColorRaster{};
     RwRaster* m_pSecondarySceneDepthRaster{};
     UINT      m_uiSecondarySceneRasterWidth{};

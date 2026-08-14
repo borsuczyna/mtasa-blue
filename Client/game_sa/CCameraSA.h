@@ -421,6 +421,9 @@ public:
     float        GetTransitionFOV() const override;
     bool         GetTransitionMatrix(CMatrix& matrix) const override;
     bool         IsSphereVisible(CVector* center, float radius) const override;
+    size_t       GetStateSnapshotSize() const override;
+    bool         GetStateSnapshot(void* pBuffer, size_t uiSize) const override;
+    bool         SetStateSnapshot(const void* pBuffer, size_t uiSize) override;
 
     // Additional overload not in base interface
     virtual CCam* GetCam(CCamSAInterface* camInterface);

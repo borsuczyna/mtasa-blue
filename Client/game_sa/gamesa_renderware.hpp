@@ -86,6 +86,7 @@ void InitRwFunctions()
     RwCameraBeginUpdate = (RwCameraBeginUpdate_t)0x007EE190;
     RwCameraEndUpdate = (RwCameraEndUpdate_t)0x007EE180;
     RwCameraClear = (RwCameraClear_t)0x007EE340;
+    RwD3D9SetTransform = (RwD3D9SetTransform_t)0x007FA390;
     RwTextureCreate = (RwTextureCreate_t)0x007F37C0;
     RpMaterialSetTexture = (RpMaterialSetTexture_t)0x0074DBC0;
     GetAnimHierarchyFromClump = (GetAnimHierarchyFromClump_t)0x734B10;

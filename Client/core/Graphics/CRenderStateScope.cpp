@@ -14,6 +14,7 @@
 #include "DXHook/CProxyDirect3DDevice9.h"
 #include <game/CCamera.h>
 #include <game/CCam.h>
+#include <game/CRenderWare.h>
 #include <cmath>
 
 namespace
@@ -111,9 +112,24 @@ CRenderStateScope::~CRenderStateScope()
 
     if (m_bHasSavedTransforms)
     {
-        m_pDevice->SetTransform(D3DTS_WORLD, &m_SavedWorld);
-        m_pDevice->SetTransform(D3DTS_VIEW, &m_SavedView);
-        m_pDevice->SetTransform(D3DTS_PROJECTION, &m_SavedProjection);
+        // SceneViews execute native RenderWare draws, whose D3D9 backend caches transforms independently
+        // from both the device and MTA's proxy. Restoring through raw IDirect3DDevice9::SetTransform leaves
+        // that cache holding the secondary camera. An unchanged following SceneView then skips its own
+        // SetTransform calls and renders with the restored primary matrix until its camera moves. Use the
+        // backend entry point so all three views of transform state remain coherent.
+        CGame*       pGame = CCore::GetSingleton().GetGame();
+        CRenderWare* pRenderWare = pGame ? pGame->GetRenderWare() : nullptr;
+        const bool   bWorldRestored = pRenderWare && pRenderWare->SetD3D9Transform(D3DTS_WORLD, &m_SavedWorld);
+        const bool   bViewRestored = pRenderWare && pRenderWare->SetD3D9Transform(D3DTS_VIEW, &m_SavedView);
+        const bool   bProjectionRestored = pRenderWare && pRenderWare->SetD3D9Transform(D3DTS_PROJECTION, &m_SavedProjection);
+        if (!bWorldRestored || !bViewRestored || !bProjectionRestored)
+        {
+            // Device startup/shutdown can temporarily make the game interface unavailable. Raw restoration
+            // is still preferable to leaking a SceneView transform in those non-rendering edge cases.
+            m_pDevice->SetTransform(D3DTS_WORLD, &m_SavedWorld);
+            m_pDevice->SetTransform(D3DTS_VIEW, &m_SavedView);
+            m_pDevice->SetTransform(D3DTS_PROJECTION, &m_SavedProjection);
+        }
     }
 
     if (m_bCameraApplied)
@@ -121,7 +137,28 @@ CRenderStateScope::~CRenderStateScope()
         CCam*    pCam = nullptr;
         CCamera* pCamera = GetActiveGameCam(pCam);
         if (pCamera && pCam)
-            ApplyCameraMatrixToGame(pCamera, pCam, m_SavedCameraMatrix, m_fSavedCameraFOV);
+        {
+            if (!m_SavedNativeCameraState.empty() && pCamera->SetStateSnapshot(m_SavedNativeCameraState.data(), m_SavedNativeCameraState.size()))
+            {
+                // The snapshot already contains every derived GTA camera field. Only publish its restored
+                // matrix to the primary RenderWare frame; recalculating derived values here would overwrite
+                // the exact state we just recovered.
+                pCamera->CopyCameraMatrixToRWCam(true);
+                return;
+            }
+
+            // Restore the exact camera values captured before the pass. Reconstructing them through
+            // ApplyCameraMatrixToGame would orthonormalize and flip the matrix again, subtly changing the
+            // primary camera on every SceneView. GTA's procedural sky reads the raw global camera matrix,
+            // making that otherwise small difference visible as sky polygons generated for a wrong angle.
+            pCamera->SetMatrix(&m_SavedCameraMatrix);
+            *pCam->GetFront() = m_SavedCamFront;
+            *pCam->GetUp() = m_SavedCamUp;
+            *pCam->GetSource() = m_SavedCamSource;
+            pCam->SetFOV(m_fSavedCameraFOV);
+            pCamera->CopyCameraMatrixToRWCam(true);
+            pCamera->CalculateDerivedValues(false, false);
+        }
     }
 }
 
@@ -205,12 +242,18 @@ bool CRenderStateScope::ApplyCamera(const CMatrix& matrix, float fFOV)
 
     if (!m_bCameraApplied)
     {
+        const size_t uiSnapshotSize = pCamera->GetStateSnapshotSize();
+        if (uiSnapshotSize)
+        {
+            m_SavedNativeCameraState.resize(uiSnapshotSize);
+            if (!pCamera->GetStateSnapshot(m_SavedNativeCameraState.data(), m_SavedNativeCameraState.size()))
+                m_SavedNativeCameraState.clear();
+        }
+
         pCamera->GetMatrix(&m_SavedCameraMatrix);
-        m_SavedCameraMatrix.vFront = *pCam->GetFront();
-        m_SavedCameraMatrix.vUp = *pCam->GetUp();
-        m_SavedCameraMatrix.vPos = *pCam->GetSource();
-        m_SavedCameraMatrix.vRight = -m_SavedCameraMatrix.vRight;
-        m_SavedCameraMatrix.OrthoNormalize(CMatrix::AXIS_FRONT, CMatrix::AXIS_UP);
+        m_SavedCamFront = *pCam->GetFront();
+        m_SavedCamUp = *pCam->GetUp();
+        m_SavedCamSource = *pCam->GetSource();
         m_fSavedCameraFOV = pCam->GetFOV();
         m_bCameraApplied = true;
     }

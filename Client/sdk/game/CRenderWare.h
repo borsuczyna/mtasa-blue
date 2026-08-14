@@ -126,4 +126,8 @@ public:
     virtual void RwMatrixSetPosition(RwMatrix& rwInOutMatrix, const CVector& vecPosition) = 0;
     virtual void RwMatrixGetScale(const RwMatrix& rwMatrix, CVector& vecOutScale) = 0;
     virtual void RwMatrixSetScale(RwMatrix& rwInOutMatrix, const CVector& vecScale) = 0;
+
+    // Native world rendering keeps a second transform cache inside RenderWare's D3D9 backend. Scoped world
+    // passes must restore through this entry point so the backend and the actual D3D device cannot disagree.
+    virtual bool SetD3D9Transform(uint uiState, const void* pMatrix) = 0;
 };

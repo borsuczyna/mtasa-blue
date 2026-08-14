@@ -82,7 +82,12 @@ DWORD RETURN_CollisionStreamRead = 0x41B1D6;
 #define FUNC_CRendererPreRender              0x553910
 #define FUNC_CWorldProcessPedsAfterPreRender 0x563430
 #define FUNC_CShadowsRenderStoredShadows     0x70A960
+#define FUNC_CCloudsRenderSkyPolys           0x714650
+#define FUNC_DefinedState                    0x734650
+#define FUNC_ActivateDirectional             0x735C80
+#define FUNC_SetLightsWithTimeOfDayColour    0x7354E0
 #define VAR_MirrorsRenderingReflection       0xC7C728
+#define VAR_Scene                            0xC17038
 
 // The native per-frame sequence calls RenderScene() (FUNC_Render3DStuff above) then, still inside the same
 // RwCameraBeginUpdate/EndUpdate bracket, a second and entirely distinct function that draws particles,
@@ -96,6 +101,18 @@ DWORD RETURN_CollisionStreamRead = 0x41B1D6;
 // draws through the RenderWare camera object this points at, not through whatever D3D9 render target
 // happens to be currently bound.
 #define VAR_TheCameraInterface 0xB6F028
+
+#define FUNC_RwCameraCreate          0x7EE4F0
+#define FUNC_RwCameraDestroy         0x7EE4B0
+#define FUNC_RwObjectSetFrame        0x804EF0
+#define FUNC_RpWorldAddCamera        0x750F20
+#define FUNC_RpWorldRemoveCamera     0x750F50
+#define FUNC_CopyCameraMatrixToRWCam 0x50AFA0
+#define FUNC_CameraCalculateDerived  0x5150E0
+#define FUNC_SetRenderWareCamera     0x7328C0
+
+#define ARRAY_ModelInfo 0xA9B0C8
+#define MAX_MODEL_INFOS 20000
 
 // CVisibilityPlugins::ms_weaponPedsForPC (a CLinkList<CPed*>) and ::RenderWeaponPedsForPC - not exposed via
 // any SDK interface. See CScopedSecondaryRender's usage below for why this needs draining.
@@ -2781,6 +2798,16 @@ bool CMultiplayerSA::RenderSecondaryScene()
         return false;
     }
 
+    CCameraSAInterface* pCameraInterface = reinterpret_cast<CCameraSAInterface*>(VAR_TheCameraInterface);
+    RwCamera*           pPrimaryRwCamera = pCameraInterface->m_pRwCamera;
+    RpWorld*            pSceneWorld = *reinterpret_cast<RpWorld**>(VAR_Scene);
+    if (!pPrimaryRwCamera || !pSceneWorld)
+    {
+        m_strLastSecondarySceneRenderError = "RenderWare scene unavailable";
+        SAFE_RELEASE(pFinalColorSurface);
+        return false;
+    }
+
     // RenderScene draws through RenderWare, not through whatever the D3D9 device's "current render target"
     // happens to be: CRenderer::RenderEverythingBarRoads unconditionally cycles RwCameraEndUpdate/BeginUpdate
     // on the single global RW camera (TheCamera's m_pRwCamera, aka Scene.m_pRwCamera) partway through the
@@ -2791,36 +2818,138 @@ bool CMultiplayerSA::RenderSecondaryScene()
     // between the two targets and peds leaked onto the primary framebuffer. A real off-screen pass needs its
     // own RwRaster-backed color/depth target attached to the camera for the whole pass, exactly like GTA's own
     // mirror rendering (CMirrors::BeforeMainRender) does.
-    if (!m_pSecondarySceneColorRaster || !m_pSecondarySceneDepthRaster || m_uiSecondarySceneRasterWidth != finalDesc.Width ||
+    if (!m_pSecondarySceneCamera || !m_pSecondarySceneColorRaster || !m_pSecondarySceneDepthRaster || m_uiSecondarySceneRasterWidth != finalDesc.Width ||
         m_uiSecondarySceneRasterHeight != finalDesc.Height)
     {
         ReleaseSecondarySceneResources();
 
-        m_pSecondarySceneColorRaster = RwRasterCreate(static_cast<int>(finalDesc.Width), static_cast<int>(finalDesc.Height), 0, RWRASTERTYPECAMERATEXTURE);
+        m_pSecondarySceneCamera = reinterpret_cast<RwCamera*(__cdecl*)()>(FUNC_RwCameraCreate)();
+        m_pSecondarySceneCameraFrame = m_pSecondarySceneCamera ? RwFrameCreate() : nullptr;
+        if (m_pSecondarySceneCamera && m_pSecondarySceneCameraFrame)
+            reinterpret_cast<void(__cdecl*)(void*, RwFrame*)>(FUNC_RwObjectSetFrame)(m_pSecondarySceneCamera, m_pSecondarySceneCameraFrame);
+
+        m_pSecondarySceneColorRaster = m_pSecondarySceneCamera
+                                           ? RwRasterCreate(static_cast<int>(finalDesc.Width), static_cast<int>(finalDesc.Height), 0, RWRASTERTYPECAMERATEXTURE)
+                                           : nullptr;
         m_pSecondarySceneDepthRaster = m_pSecondarySceneColorRaster
                                            ? RwRasterCreate(static_cast<int>(finalDesc.Width), static_cast<int>(finalDesc.Height), 0, RWRASTERTYPEZBUFFER)
                                            : nullptr;
 
-        if (!m_pSecondarySceneColorRaster || !m_pSecondarySceneDepthRaster)
+        if (!m_pSecondarySceneCamera || !m_pSecondarySceneCameraFrame || !m_pSecondarySceneColorRaster || !m_pSecondarySceneDepthRaster)
         {
-            m_strLastSecondarySceneRenderError = "could not create secondary RenderWare rasters";
+            m_strLastSecondarySceneRenderError = "could not create secondary RenderWare camera";
             ReleaseSecondarySceneResources();
             SAFE_RELEASE(pFinalColorSurface);
             return false;
         }
 
+        m_pSecondarySceneCamera->bufferColor = m_pSecondarySceneColorRaster;
+        m_pSecondarySceneCamera->bufferDepth = m_pSecondarySceneDepthRaster;
+        reinterpret_cast<RpWorld*(__cdecl*)(RpWorld*, RwCamera*)>(FUNC_RpWorldAddCamera)(pSceneWorld, m_pSecondarySceneCamera);
+        m_bSecondarySceneCameraAddedToWorld = true;
+
         m_uiSecondarySceneRasterWidth = finalDesc.Width;
         m_uiSecondarySceneRasterHeight = finalDesc.Height;
     }
 
-    CCameraSAInterface* pCameraInterface = reinterpret_cast<CCameraSAInterface*>(VAR_TheCameraInterface);
-    RwCamera*           pRwCamera = pCameraInterface->m_pRwCamera;
-    if (!pRwCamera)
+    RwCamera* pRwCamera = m_pSecondarySceneCamera;
+    pRwCamera->screen = pPrimaryRwCamera->screen;
+    pRwCamera->screenInverse = pPrimaryRwCamera->screenInverse;
+    pRwCamera->screenOffset = pPrimaryRwCamera->screenOffset;
+    pRwCamera->nearplane = pPrimaryRwCamera->nearplane;
+    pRwCamera->farplane = pPrimaryRwCamera->farplane;
+    pRwCamera->fog = pPrimaryRwCamera->fog;
+    pRwCamera->unknown1 = pPrimaryRwCamera->unknown1;
+    pRwCamera->unknown2 = pPrimaryRwCamera->unknown2;
+
+    struct CScopedSceneCamera
     {
-        m_strLastSecondarySceneRenderError = "RenderWare camera unavailable";
-        SAFE_RELEASE(pFinalColorSurface);
-        return false;
-    }
+        CScopedSceneCamera(CCameraSAInterface* pCameraInterface, RwCamera* pCamera)
+            : m_pCameraInterface(pCameraInterface),
+              m_pPreviousTheCamera(pCameraInterface->m_pRwCamera),
+              m_ppSceneCamera(reinterpret_cast<RwCamera**>(VAR_Scene + 4)),
+              m_pPreviousSceneCamera(*m_ppSceneCamera)
+        {
+            m_pCameraInterface->m_pRwCamera = pCamera;
+            *m_ppSceneCamera = pCamera;
+
+            // BeginSceneViewRender has already applied the requested GTA camera transform. Copy it to this
+            // pass-owned RenderWare camera only after both native camera pointers refer to that object.
+            reinterpret_cast<void(__thiscall*)(CCameraSAInterface*, bool)>(FUNC_CopyCameraMatrixToRWCam)(m_pCameraInterface, true);
+            reinterpret_cast<void(__thiscall*)(CCameraSAInterface*, bool, bool)>(FUNC_CameraCalculateDerived)(m_pCameraInterface, false, false);
+            reinterpret_cast<void(__cdecl*)(RwCamera*)>(FUNC_SetRenderWareCamera)(pCamera);
+        }
+
+        ~CScopedSceneCamera()
+        {
+            *m_ppSceneCamera = m_pPreviousSceneCamera;
+            m_pCameraInterface->m_pRwCamera = m_pPreviousTheCamera;
+            reinterpret_cast<void(__cdecl*)(RwCamera*)>(FUNC_SetRenderWareCamera)(m_pPreviousTheCamera);
+        }
+
+        CCameraSAInterface* m_pCameraInterface;
+        RwCamera*           m_pPreviousTheCamera;
+        RwCamera**          m_ppSceneCamera;
+        RwCamera*           m_pPreviousSceneCamera;
+    } sceneCamera(pCameraInterface, pRwCamera);
+
+    // CEntity::PreRender mutates state shared by every instance of a model. In particular, it increases
+    // CBaseModelInfo::m_nAlpha by 16 and flips bHasBeenPreRendered. Repeating that stage for multiple
+    // SceneViews made each later view progressively more opaque/bright and left the primary pass at a
+    // different fade step. Preserve those two fields for every currently loaded model so each world render
+    // observes the same frame state. Pointer identity is rechecked on restore in case ConstructRenderList
+    // caused streaming to replace a model without running arbitrary script code.
+    struct CScopedModelRenderState
+    {
+        struct CBaseModelInfoPrefix
+        {
+            void* pVtable;
+            DWORD uiKey;
+            WORD  usRefCount;
+            WORD  usTxdIndex;
+            BYTE  ucAlpha;
+            BYTE  ucNum2dEffects;
+            WORD  us2dEffectIndex;
+            WORD  usObjectInfoIndex;
+            WORD  usFlags;
+        };
+        static_assert(offsetof(CBaseModelInfoPrefix, ucAlpha) == 12);
+        static_assert(offsetof(CBaseModelInfoPrefix, usFlags) == 18);
+
+        struct SEntry
+        {
+            CBaseModelInfoPrefix* pModel;
+            BYTE                  ucAlpha;
+            WORD                  usFlags;
+        };
+
+        CScopedModelRenderState() : m_ppModels(reinterpret_cast<CBaseModelInfoPrefix**>(ARRAY_ModelInfo))
+        {
+            m_Entries.resize(MAX_MODEL_INFOS);
+            for (uint i = 0; i < MAX_MODEL_INFOS; ++i)
+            {
+                CBaseModelInfoPrefix* pModel = m_ppModels[i];
+                if (pModel)
+                    m_Entries[i] = {pModel, pModel->ucAlpha, pModel->usFlags};
+            }
+        }
+
+        ~CScopedModelRenderState()
+        {
+            for (uint i = 0; i < MAX_MODEL_INFOS; ++i)
+            {
+                CBaseModelInfoPrefix* pModel = m_ppModels[i];
+                const SEntry&         entry = m_Entries[i];
+                if (!pModel || entry.pModel != pModel)
+                    continue;
+                pModel->ucAlpha = entry.ucAlpha;
+                pModel->usFlags = entry.usFlags;
+            }
+        }
+
+        CBaseModelInfoPrefix** m_ppModels;
+        std::vector<SEntry>    m_Entries;
+    } modelRenderState;
 
     struct CScopedSecondaryRender
     {
@@ -2836,6 +2965,18 @@ bool CMultiplayerSA::RenderSecondaryScene()
 
         ~CScopedSecondaryRender()
         {
+            // A world render may temporarily replace the ambient/directional lights (for example while
+            // drawing scorched entities). GTA normally establishes the time-cycle lighting once before its
+            // only world render. Independent views introduce additional world renders, so restore the native
+            // baseline here as well; otherwise the next SceneView or the primary camera inherits whichever
+            // light state the preceding view happened to leave behind.
+            RpWorld* pWorld = *reinterpret_cast<RpWorld**>(VAR_Scene);
+            if (pWorld)
+            {
+                reinterpret_cast<void(__cdecl*)()>(FUNC_ActivateDirectional)();
+                reinterpret_cast<void(__cdecl*)(RpWorld*)>(FUNC_SetLightsWithTimeOfDayColour)(pWorld);
+            }
+
             *reinterpret_cast<bool*>(VAR_MirrorsRenderingReflection) = m_bPreviousReflectionState;
             s_bRenderingSecondaryScene = false;
         }
@@ -2906,6 +3047,23 @@ bool CMultiplayerSA::RenderSecondaryScene()
         // raster extension ourselves - is the safe way to get a handle on it for the copy below.
         pDevice->GetRenderTarget(0, &pSecondaryColorSurface);
 
+        // Match the native Idle() setup for every independently rendered world. DefinedState resets the
+        // RenderWare world-render baseline, while SetLightsWithTimeOfDayColour prevents a later SceneView
+        // from inheriting ambient/directional light mutations made by an earlier one.
+        reinterpret_cast<void(__cdecl*)()>(FUNC_DefinedState)();
+        RpWorld* pWorld = *reinterpret_cast<RpWorld**>(VAR_Scene);
+        if (pWorld)
+        {
+            reinterpret_cast<void(__cdecl*)()>(FUNC_ActivateDirectional)();
+            reinterpret_cast<void(__cdecl*)(RpWorld*)>(FUNC_SetLightsWithTimeOfDayColour)(pWorld);
+        }
+
+        // GTA renders its procedural sky gradient in DoRWStuffStartOfFrame_Horizon(), before RenderScene().
+        // Calling RenderScene alone therefore leaves an off-screen camera's clear colour visible wherever
+        // no world geometry is drawn. Render the sky only after the secondary camera is fully active so its
+        // camera-facing polygons are generated independently for this view rather than for the primary one.
+        reinterpret_cast<void(__cdecl*)()>(FUNC_CCloudsRenderSkyPolys)();
+
         // GTA caches visible sectors and entities in global renderer lists before drawing. Rebuild those
         // lists after applying the secondary camera; changing only camera matrices would otherwise combine
         // the new dynamic-entity view with static world geometry selected for the primary camera.
@@ -2936,8 +3094,11 @@ bool CMultiplayerSA::RenderSecondaryScene()
         reinterpret_cast<void(__cdecl*)()>(FUNC_CVisibilityPluginsRenderWeaponPedsForPC)();
         ResetWeaponPedsForPC();
 
-        // Particles, coronas and road-light glow - see FUNC_RenderEffects' comment above.
-        reinterpret_cast<void(__cdecl*)()>(FUNC_RenderEffects)();
+        // Do not call GTA's monolithic RenderEffects() here. Its particles, moving things, coronas and
+        // post-effects consume frame-global queues and screen-sized intermediate rasters. A second call in
+        // the same frame can therefore composite the preceding camera into this target and drain data that
+        // the primary view still owns. Individual effect categories can be enabled later only after their
+        // queues and camera inputs have dedicated SceneView scopes.
 
         RwCameraEndUpdate(pRwCamera);
         cameraRasters.m_bUpdateActive = false;
@@ -3010,11 +3171,26 @@ void CMultiplayerSA::ReleaseSecondarySceneResources()
 {
     // RenderWare owns the wrapped D3D9 textures, so destruction must go through RW rather than releasing
     // backend surfaces directly. The next requested scene view recreates a compatible pair lazily.
+    if (m_pSecondarySceneCamera)
+    {
+        RpWorld* pSceneWorld = *reinterpret_cast<RpWorld**>(VAR_Scene);
+        if (pSceneWorld && m_bSecondarySceneCameraAddedToWorld)
+            reinterpret_cast<RpWorld*(__cdecl*)(RpWorld*, RwCamera*)>(FUNC_RpWorldRemoveCamera)(pSceneWorld, m_pSecondarySceneCamera);
+        if (m_pSecondarySceneCameraFrame)
+            reinterpret_cast<void(__cdecl*)(void*, RwFrame*)>(FUNC_RwObjectSetFrame)(m_pSecondarySceneCamera, nullptr);
+    }
     if (m_pSecondarySceneColorRaster)
         RwRasterDestroy(m_pSecondarySceneColorRaster);
     if (m_pSecondarySceneDepthRaster)
         RwRasterDestroy(m_pSecondarySceneDepthRaster);
+    if (m_pSecondarySceneCameraFrame)
+        RwFrameDestroy(m_pSecondarySceneCameraFrame);
+    if (m_pSecondarySceneCamera)
+        reinterpret_cast<int(__cdecl*)(RwCamera*)>(FUNC_RwCameraDestroy)(m_pSecondarySceneCamera);
 
+    m_pSecondarySceneCamera = nullptr;
+    m_pSecondarySceneCameraFrame = nullptr;
+    m_bSecondarySceneCameraAddedToWorld = false;
     m_pSecondarySceneColorRaster = nullptr;
     m_pSecondarySceneDepthRaster = nullptr;
     m_uiSecondarySceneRasterWidth = 0;

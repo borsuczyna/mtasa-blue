@@ -53,6 +53,10 @@ void CLuaDrawingDefs::LoadFunctions()
         {"dxSetSceneViewMatrix", DxSetSceneViewMatrix},
         {"dxRequestSceneViewRender", DxRequestSceneViewRender},
         {"dxSetSceneViewUpdateMode", DxSetSceneViewUpdateMode},
+        {"engineApplyShaderToSceneViewWorldTexture", DxApplyShaderToSceneViewWorldTexture},
+        {"engineRemoveShaderFromSceneViewWorldTexture", DxRemoveShaderFromSceneViewWorldTexture},
+        // Compatibility aliases for development builds that exposed these functions before they were moved
+        // to the engine namespace used by all other world-texture shader assignments.
         {"dxApplyShaderToSceneViewWorldTexture", DxApplyShaderToSceneViewWorldTexture},
         {"dxRemoveShaderFromSceneViewWorldTexture", DxRemoveShaderFromSceneViewWorldTexture},
         {"dxSetSceneViewOutputShader", DxSetSceneViewOutputShader},
@@ -146,8 +150,8 @@ void CLuaDrawingDefs::AddDxShaderClass(lua_State* luaVM)
     lua_classfunction(luaVM, "create", "dxCreateShader");
     lua_classfunction(luaVM, "applyToWorldTexture", "engineApplyShaderToWorldTexture");
     lua_classfunction(luaVM, "removeFromWorldTexture", "engineRemoveShaderFromWorldTexture");
-    lua_classfunction(luaVM, "applyToSceneViewWorldTexture", "dxApplyShaderToSceneViewWorldTexture");
-    lua_classfunction(luaVM, "removeFromSceneViewWorldTexture", "dxRemoveShaderFromSceneViewWorldTexture");
+    lua_classfunction(luaVM, "applyToSceneViewWorldTexture", "engineApplyShaderToSceneViewWorldTexture");
+    lua_classfunction(luaVM, "removeFromSceneViewWorldTexture", "engineRemoveShaderFromSceneViewWorldTexture");
 
     lua_classfunction(luaVM, "setValue", "dxSetShaderValue");
     lua_classfunction(luaVM, "setTessellation", "dxSetShaderTessellation");
@@ -1807,7 +1811,7 @@ int CLuaDrawingDefs::DxApplyShaderToSceneViewWorldTexture(lua_State* luaVM)
         CClientEntity* pResourceRoot = pResource ? pResource->GetResourceDynamicEntity() : nullptr;
         if (!pResourceRoot || !pResourceRoot->IsMyChild(pShader, true) || !pResourceRoot->IsMyChild(pSceneView, true))
         {
-            m_pScriptDebugging->LogCustom(luaVM, "dxApplyShaderToSceneViewWorldTexture: shader and scene view must belong to this resource");
+            m_pScriptDebugging->LogCustom(luaVM, "engineApplyShaderToSceneViewWorldTexture: shader and scene view must belong to this resource");
             lua_pushboolean(luaVM, false);
             return 1;
         }
@@ -1838,7 +1842,7 @@ int CLuaDrawingDefs::DxRemoveShaderFromSceneViewWorldTexture(lua_State* luaVM)
         CClientEntity* pResourceRoot = pResource ? pResource->GetResourceDynamicEntity() : nullptr;
         if (!pResourceRoot || !pResourceRoot->IsMyChild(pShader, true) || !pResourceRoot->IsMyChild(pSceneView, true))
         {
-            m_pScriptDebugging->LogCustom(luaVM, "dxRemoveShaderFromSceneViewWorldTexture: shader and scene view must belong to this resource");
+            m_pScriptDebugging->LogCustom(luaVM, "engineRemoveShaderFromSceneViewWorldTexture: shader and scene view must belong to this resource");
             lua_pushboolean(luaVM, false);
             return 1;
         }
