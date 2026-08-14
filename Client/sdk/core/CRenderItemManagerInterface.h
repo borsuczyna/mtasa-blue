@@ -45,6 +45,12 @@ struct SSceneViewShaderAssignment
 {
     CShaderItem* pShaderItem = nullptr;
     SString      strTextureNameMatch;
+    // nullptr means the assignment applies to every matching texture in the scene view (global), matching
+    // engineApplyShaderToWorldTexture's default. A specific target restricts it to that element only.
+    CClientEntityBase* pTargetEntity = nullptr;
+    // Mirrors engineApplyShaderToWorldTexture's appendLayers: when false and pTargetEntity is set, a
+    // matching global (no-target) assignment is excluded for that element's own textures.
+    bool bAppendLayers = true;
 };
 typedef CShaderItem CSHADERDUMMY;
 enum eAspectRatio;

@@ -117,24 +117,34 @@ public:
     void                     SetLastRenderError(const SString& strError) { m_strLastRenderError = strError; }
     const SString&           GetLastRenderError() const { return m_strLastRenderError; }
 
-    bool AddShaderAssignment(CShaderItem* pShaderItem, const SString& strTextureNameMatch)
+    // pTargetEntity mirrors engineApplyShaderToWorldTexture's targetElement: nullptr applies the shader to
+    // every matching texture in the scene view, a specific element restricts it to that element only. A
+    // destroyed target entity is not purged from here (this struct only ever compares its pointer value,
+    // never dereferences it), so a stale assignment simply stops matching anything rather than dangling.
+    bool AddShaderAssignment(CShaderItem* pShaderItem, const SString& strTextureNameMatch, CClientEntityBase* pTargetEntity = nullptr,
+                             bool bAppendLayers = true)
     {
         const SString strMatchLower = strTextureNameMatch.ToLower();
-        for (const SSceneViewShaderAssignment& assignment : m_ShaderAssignments)
-            if (assignment.pShaderItem == pShaderItem && assignment.strTextureNameMatch == strMatchLower)
+        for (SSceneViewShaderAssignment& assignment : m_ShaderAssignments)
+        {
+            if (assignment.pShaderItem == pShaderItem && assignment.strTextureNameMatch == strMatchLower && assignment.pTargetEntity == pTargetEntity)
+            {
+                assignment.bAppendLayers = bAppendLayers;
                 return true;
+            }
+        }
 
         pShaderItem->AddRef();
-        m_ShaderAssignments.push_back({pShaderItem, strMatchLower});
+        m_ShaderAssignments.push_back({pShaderItem, strMatchLower, pTargetEntity, bAppendLayers});
         return true;
     }
 
-    bool RemoveShaderAssignment(CShaderItem* pShaderItem, const SString& strTextureNameMatch)
+    bool RemoveShaderAssignment(CShaderItem* pShaderItem, const SString& strTextureNameMatch, CClientEntityBase* pTargetEntity = nullptr)
     {
         const SString strMatchLower = strTextureNameMatch.ToLower();
         for (auto iter = m_ShaderAssignments.begin(); iter != m_ShaderAssignments.end(); ++iter)
         {
-            if (iter->pShaderItem == pShaderItem && iter->strTextureNameMatch == strMatchLower)
+            if (iter->pShaderItem == pShaderItem && iter->strTextureNameMatch == strMatchLower && iter->pTargetEntity == pTargetEntity)
             {
                 SAFE_RELEASE(iter->pShaderItem);
                 m_ShaderAssignments.erase(iter);

@@ -96,17 +96,43 @@ SShaderItemLayers* CRenderItemManager::GetAppliedShaderForD3DData(CD3DDUMMY* pD3
     // consulted at all. This avoids mutating or cloning the global match-channel graph around a native GTA
     // render and guarantees that another view or the primary camera cannot observe these assignments.
     *m_pSceneViewShaderLayers = SShaderItemLayers();
-    const char* szTextureName = m_pRenderWare->GetTextureName(pD3DData);
-    const int   iEntityType = m_pRenderWare->GetRenderingEntityType();
+    const char*        szTextureName = m_pRenderWare->GetTextureName(pD3DData);
+    const int          iEntityType = m_pRenderWare->GetRenderingEntityType();
+    CClientEntityBase* pRenderingEntity = m_pRenderWare->GetRenderingClientEntity();
+
+    const auto matches = [&](const SSceneViewShaderAssignment& assignment)
+    {
+        CShaderItem* pShader = assignment.pShaderItem;
+        return pShader && (pShader->m_iTypeMask & iEntityType) && WildcardMatchI(assignment.strTextureNameMatch, szTextureName);
+    };
+
+    // engineApplyShaderToWorldTexture parity: a targeted (non-global) assignment with appendLayers=false
+    // takes exclusive priority over global (no-target) assignments for that one element's own textures.
+    bool bExclusiveEntityMatch = false;
+    if (pRenderingEntity)
+    {
+        for (const SSceneViewShaderAssignment& assignment : *m_pSceneViewShaderContext)
+        {
+            if (assignment.pTargetEntity == pRenderingEntity && !assignment.bAppendLayers && matches(assignment))
+            {
+                bExclusiveEntityMatch = true;
+                break;
+            }
+        }
+    }
 
     std::vector<CShaderItem*> matchedLayers;
     CShaderItem*              pBestBase = nullptr;
     for (const SSceneViewShaderAssignment& assignment : *m_pSceneViewShaderContext)
     {
-        CShaderItem* pShader = assignment.pShaderItem;
-        if (!pShader || !(pShader->m_iTypeMask & iEntityType) || !WildcardMatchI(assignment.strTextureNameMatch, szTextureName))
+        if (!matches(assignment))
             continue;
+        if (assignment.pTargetEntity && assignment.pTargetEntity != pRenderingEntity)
+            continue;  // targets a different element
+        if (!assignment.pTargetEntity && bExclusiveEntityMatch)
+            continue;  // suppressed by this element's own exclusive assignment
 
+        CShaderItem* pShader = assignment.pShaderItem;
         if (pShader->m_bLayered)
             matchedLayers.push_back(pShader);
         else if (!pBestBase || pShader->m_fPriority > pBestBase->m_fPriority ||

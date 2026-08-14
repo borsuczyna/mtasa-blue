@@ -53,12 +53,8 @@ void CLuaDrawingDefs::LoadFunctions()
         {"dxSetSceneViewMatrix", DxSetSceneViewMatrix},
         {"dxRequestSceneViewRender", DxRequestSceneViewRender},
         {"dxSetSceneViewUpdateMode", DxSetSceneViewUpdateMode},
-        {"engineApplyShaderToSceneViewWorldTexture", DxApplyShaderToSceneViewWorldTexture},
-        {"engineRemoveShaderFromSceneViewWorldTexture", DxRemoveShaderFromSceneViewWorldTexture},
-        // Compatibility aliases for development builds that exposed these functions before they were moved
-        // to the engine namespace used by all other world-texture shader assignments.
-        {"dxApplyShaderToSceneViewWorldTexture", DxApplyShaderToSceneViewWorldTexture},
-        {"dxRemoveShaderFromSceneViewWorldTexture", DxRemoveShaderFromSceneViewWorldTexture},
+        {"engineApplyShaderToSceneViewWorldTexture", EngineApplyShaderToSceneViewWorldTexture},
+        {"engineRemoveShaderFromSceneViewWorldTexture", EngineRemoveShaderFromSceneViewWorldTexture},
         {"dxSetSceneViewOutputShader", DxSetSceneViewOutputShader},
         {"dxRemoveSceneViewOutputShader", DxRemoveSceneViewOutputShader},
         {"dxGetSceneViewTexture", DxGetSceneViewTexture},
@@ -1791,15 +1787,21 @@ int CLuaDrawingDefs::DxSetSceneViewUpdateMode(lua_State* luaVM)
     return 1;
 }
 
-int CLuaDrawingDefs::DxApplyShaderToSceneViewWorldTexture(lua_State* luaVM)
+int CLuaDrawingDefs::EngineApplyShaderToSceneViewWorldTexture(lua_State* luaVM)
 {
+    //  bool engineApplyShaderToSceneViewWorldTexture ( shader theShader, sceneView theSceneView, string textureName, [ element targetElement, bool appendLayers
+    //  ] )
     CClientShader*    pShader = nullptr;
     CClientSceneView* pSceneView = nullptr;
     SString           strTextureNameMatch;
+    CClientEntity*    pTargetEntity = nullptr;
+    bool              bAppendLayers = true;
     CScriptArgReader  argStream(luaVM);
     argStream.ReadUserData(pShader);
     argStream.ReadUserData(pSceneView);
     argStream.ReadString(strTextureNameMatch);
+    argStream.ReadUserData(pTargetEntity, nullptr);
+    argStream.ReadBool(bAppendLayers, true);
 
     if (!argStream.HasErrors() && strTextureNameMatch.empty())
         argStream.SetCustomError("texture name match cannot be empty", "Bad argument");
@@ -1816,7 +1818,7 @@ int CLuaDrawingDefs::DxApplyShaderToSceneViewWorldTexture(lua_State* luaVM)
             return 1;
         }
 
-        lua_pushboolean(luaVM, pSceneView->AddShaderAssignment(pShader->GetShaderItem(), strTextureNameMatch));
+        lua_pushboolean(luaVM, pSceneView->AddShaderAssignment(pShader->GetShaderItem(), strTextureNameMatch, pTargetEntity, bAppendLayers));
         return 1;
     }
 
@@ -1825,15 +1827,18 @@ int CLuaDrawingDefs::DxApplyShaderToSceneViewWorldTexture(lua_State* luaVM)
     return 1;
 }
 
-int CLuaDrawingDefs::DxRemoveShaderFromSceneViewWorldTexture(lua_State* luaVM)
+int CLuaDrawingDefs::EngineRemoveShaderFromSceneViewWorldTexture(lua_State* luaVM)
 {
+    //  bool engineRemoveShaderFromSceneViewWorldTexture ( shader theShader, sceneView theSceneView, string textureName, [ element targetElement ] )
     CClientShader*    pShader = nullptr;
     CClientSceneView* pSceneView = nullptr;
     SString           strTextureNameMatch;
+    CClientEntity*    pTargetEntity = nullptr;
     CScriptArgReader  argStream(luaVM);
     argStream.ReadUserData(pShader);
     argStream.ReadUserData(pSceneView);
     argStream.ReadString(strTextureNameMatch);
+    argStream.ReadUserData(pTargetEntity, nullptr);
 
     if (!argStream.HasErrors())
     {
@@ -1847,7 +1852,7 @@ int CLuaDrawingDefs::DxRemoveShaderFromSceneViewWorldTexture(lua_State* luaVM)
             return 1;
         }
 
-        lua_pushboolean(luaVM, pSceneView->RemoveShaderAssignment(pShader->GetShaderItem(), strTextureNameMatch));
+        lua_pushboolean(luaVM, pSceneView->RemoveShaderAssignment(pShader->GetShaderItem(), strTextureNameMatch, pTargetEntity));
         return 1;
     }
 
