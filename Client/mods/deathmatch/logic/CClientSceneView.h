@@ -34,7 +34,12 @@ public:
         SetTypeName("dx-sceneview");
     }
 
-    ~CClientSceneView() { SAFE_RELEASE(m_pDepthStencilTargetItem); }
+    ~CClientSceneView()
+    {
+        for (SSceneViewShaderAssignment& assignment : m_ShaderAssignments)
+            SAFE_RELEASE(assignment.pShaderItem);
+        SAFE_RELEASE(m_pDepthStencilTargetItem);
+    }
 
     eClientEntityType GetType() const { return CCLIENTSCENEVIEW; }
 
@@ -108,16 +113,46 @@ public:
     uint                     GetLastRenderFrame() const { return m_uiLastRenderFrame; }
     uint                     GetLastRenderTick() const { return m_uiLastRenderTick; }
 
+    bool AddShaderAssignment(CShaderItem* pShaderItem, const SString& strTextureNameMatch)
+    {
+        const SString strMatchLower = strTextureNameMatch.ToLower();
+        for (const SSceneViewShaderAssignment& assignment : m_ShaderAssignments)
+            if (assignment.pShaderItem == pShaderItem && assignment.strTextureNameMatch == strMatchLower)
+                return true;
+
+        pShaderItem->AddRef();
+        m_ShaderAssignments.push_back({pShaderItem, strMatchLower});
+        return true;
+    }
+
+    bool RemoveShaderAssignment(CShaderItem* pShaderItem, const SString& strTextureNameMatch)
+    {
+        const SString strMatchLower = strTextureNameMatch.ToLower();
+        for (auto iter = m_ShaderAssignments.begin(); iter != m_ShaderAssignments.end(); ++iter)
+        {
+            if (iter->pShaderItem == pShaderItem && iter->strTextureNameMatch == strMatchLower)
+            {
+                SAFE_RELEASE(iter->pShaderItem);
+                m_ShaderAssignments.erase(iter);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    const std::vector<SSceneViewShaderAssignment>& GetShaderAssignments() const { return m_ShaderAssignments; }
+
 private:
-    CDepthStencilTargetItem* m_pDepthStencilTargetItem;
-    CMatrix                  m_CameraMatrix;
-    float                    m_fFOV;
-    bool                     m_bRenderRequested;
-    bool                     m_bLastRenderSucceeded;
-    bool                     m_bCameraConfigured = false;
-    ESceneViewUpdateMode     m_UpdateMode = ESceneViewUpdateMode::MANUAL;
-    uint                     m_uiUpdateValue = 0;
-    uint                     m_uiRenderCount = 0;
-    uint                     m_uiLastRenderFrame = 0;
-    uint                     m_uiLastRenderTick = 0;
+    CDepthStencilTargetItem*                m_pDepthStencilTargetItem;
+    CMatrix                                 m_CameraMatrix;
+    float                                   m_fFOV;
+    bool                                    m_bRenderRequested;
+    bool                                    m_bLastRenderSucceeded;
+    bool                                    m_bCameraConfigured = false;
+    ESceneViewUpdateMode                    m_UpdateMode = ESceneViewUpdateMode::MANUAL;
+    uint                                    m_uiUpdateValue = 0;
+    uint                                    m_uiRenderCount = 0;
+    uint                                    m_uiLastRenderFrame = 0;
+    uint                                    m_uiLastRenderTick = 0;
+    std::vector<SSceneViewShaderAssignment> m_ShaderAssignments;
 };

@@ -103,6 +103,8 @@ public:
     virtual void             GetModelTextureNames(std::vector<SString>& outNameList, ushort usModelID) = 0;
     virtual bool GetModelTextures(std::vector<std::tuple<std::string, CPixels>>& outTextureList, ushort usModelID, std::vector<SString> vTextureNames) = 0;
     virtual const char* GetTextureName(CD3DDUMMY* pD3DData) = 0;
+    virtual int         GetRenderingEntityType() const = 0;
+    virtual void        OnShaderReplacementResolved(bool bUsesVertexShader) = 0;
     virtual ushort      GetTXDIDForModelID(ushort usModelID) = 0;
 
     virtual void               SetRenderingClientEntity(CClientEntityBase* pClientEntity, ushort usModelId, int iTypeMask) = 0;

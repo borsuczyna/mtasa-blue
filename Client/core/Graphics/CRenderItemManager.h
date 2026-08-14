@@ -54,6 +54,7 @@ public:
     virtual void                UpdateBackBufferCopy();
     virtual void                UpdateScreenSource(CScreenSourceItem* pScreenSourceItem, bool bResampleNow);
     virtual SShaderItemLayers*  GetAppliedShaderForD3DData(CD3DDUMMY* pD3DData);
+    virtual void                SetSceneViewShaderContext(const std::vector<SSceneViewShaderAssignment>* pAssignments);
     virtual bool                ApplyShaderItemToWorldTexture(CShaderItem* pShaderItem, const SString& strTextureNameMatch, CClientEntityBase* pClientEntity,
                                                               bool bAppendLayers);
     virtual bool           RemoveShaderItemFromWorldTexture(CShaderItem* pShaderItem, const SString& strTextureNameMatch, CClientEntityBase* pClientEntity);
@@ -108,42 +109,44 @@ public:
 protected:
     void TryRecreateInvalidRenderTargets();
 
-    std::set<CRenderItem*>   m_CreatedItemList;
-    IDirect3DSurface9*       m_pDefaultD3DRenderTarget;
-    IDirect3DSurface9*       m_pDefaultD3DZStencilSurface;
-    uint                     m_uiDefaultViewportSizeX;
-    uint                     m_uiDefaultViewportSizeY;
-    CRenderTargetItem*       m_pBackBufferCopy;
-    bool                     m_bBackBufferCopyMaybeNeedsResize;
-    uint                     m_uiBackBufferCopyRevision;
-    CFastHashSet<CD3DDUMMY*> m_FrameTextureUsage;
-    CFastHashSet<CD3DDUMMY*> m_PrevFrameTextureUsage;
-    class CRenderWare*       m_pRenderWare;
-    CEffectCloner*           m_pEffectCloner;
-    eDxTestMode              m_TestMode;
-    SString                  m_strVideoCardName;
-    int                      m_iVideoCardMemoryKBTotal;
-    int                      m_iVideoCardMemoryKBForMTATotal;
-    SString                  m_strVideoCardPSVersion;
-    int                      m_iTextureMemoryKBUsed;
-    int                      m_iRenderTargetMemoryKBUsed;
-    int                      m_iFontMemoryKBUsed;
-    int                      m_iMemoryKBFreeForMTA;
-    bool                     m_bSetRenderTargetEnabledOldVer;
-    bool                     m_bUsingReadableDepthBuffer;
-    ERenderFormat            m_depthBufferFormat;
-    std::set<CShaderItem*>   m_ShadersUsingDepthBuffer;
-    std::set<CShaderItem*>   m_ShadersUsingMultipleRenderTargets;
-    IDirect3DSurface9*       m_pSavedSceneDepthSurface;
-    IDirect3DSurface9*       m_pSavedSceneRenderTargetAA;
-    IDirect3DSurface9*       m_pNonAADepthSurface2;
-    IDirect3DSurface9*       m_pNonAARenderTarget;
-    IDirect3DTexture9*       m_pNonAARenderTargetTexture;
-    bool                     m_bIsSwiftShader;
-    uint                     m_uiLastRenderTargetRetryTime;
-    uint                     m_uiRenderTargetRetryDelayMs;
-    uint                     m_uiRenderTargetRetryAttempts;
-    uint                     m_uiRenderTargetRetryCooldownUntil;
+    std::set<CRenderItem*>                         m_CreatedItemList;
+    IDirect3DSurface9*                             m_pDefaultD3DRenderTarget;
+    IDirect3DSurface9*                             m_pDefaultD3DZStencilSurface;
+    uint                                           m_uiDefaultViewportSizeX;
+    uint                                           m_uiDefaultViewportSizeY;
+    CRenderTargetItem*                             m_pBackBufferCopy;
+    bool                                           m_bBackBufferCopyMaybeNeedsResize;
+    uint                                           m_uiBackBufferCopyRevision;
+    CFastHashSet<CD3DDUMMY*>                       m_FrameTextureUsage;
+    CFastHashSet<CD3DDUMMY*>                       m_PrevFrameTextureUsage;
+    class CRenderWare*                             m_pRenderWare;
+    CEffectCloner*                                 m_pEffectCloner;
+    eDxTestMode                                    m_TestMode;
+    SString                                        m_strVideoCardName;
+    int                                            m_iVideoCardMemoryKBTotal;
+    int                                            m_iVideoCardMemoryKBForMTATotal;
+    SString                                        m_strVideoCardPSVersion;
+    int                                            m_iTextureMemoryKBUsed;
+    int                                            m_iRenderTargetMemoryKBUsed;
+    int                                            m_iFontMemoryKBUsed;
+    int                                            m_iMemoryKBFreeForMTA;
+    bool                                           m_bSetRenderTargetEnabledOldVer;
+    bool                                           m_bUsingReadableDepthBuffer;
+    ERenderFormat                                  m_depthBufferFormat;
+    std::set<CShaderItem*>                         m_ShadersUsingDepthBuffer;
+    std::set<CShaderItem*>                         m_ShadersUsingMultipleRenderTargets;
+    const std::vector<SSceneViewShaderAssignment>* m_pSceneViewShaderContext;
+    SShaderItemLayers*                             m_pSceneViewShaderLayers;
+    IDirect3DSurface9*                             m_pSavedSceneDepthSurface;
+    IDirect3DSurface9*                             m_pSavedSceneRenderTargetAA;
+    IDirect3DSurface9*                             m_pNonAADepthSurface2;
+    IDirect3DSurface9*                             m_pNonAARenderTarget;
+    IDirect3DTexture9*                             m_pNonAARenderTargetTexture;
+    bool                                           m_bIsSwiftShader;
+    uint                                           m_uiLastRenderTargetRetryTime;
+    uint                                           m_uiRenderTargetRetryDelayMs;
+    uint                                           m_uiRenderTargetRetryAttempts;
+    uint                                           m_uiRenderTargetRetryCooldownUntil;
 
     // Stack of open dxBeginRenderPass/dxEndRenderPass scopes (innermost/most-recent last).
     // Force-closed defensively in OnPresent (in case a script forgets dxEndRenderPass) and in

@@ -37,6 +37,7 @@ CRenderItemManager::CRenderItemManager()
     : m_uiLastRenderTargetRetryTime(0), m_uiRenderTargetRetryDelayMs(0), m_uiRenderTargetRetryAttempts(0), m_uiRenderTargetRetryCooldownUntil(0)
 {
     m_pEffectCloner = new CEffectCloner(this);
+    m_pSceneViewShaderLayers = new SShaderItemLayers();
 }
 
 ////////////////////////////////////////////////////////////////
@@ -49,6 +50,7 @@ CRenderItemManager::CRenderItemManager()
 CRenderItemManager::~CRenderItemManager()
 {
     ForceCloseAllRenderPasses();
+    SAFE_DELETE(m_pSceneViewShaderLayers);
     SAFE_DELETE(m_pEffectCloner);
 }
 

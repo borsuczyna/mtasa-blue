@@ -303,6 +303,20 @@ bool CClientRenderElementManager::RenderRequestedSceneView()
         bool       bRendered = false;
         if (bBegan)
         {
+            // A non-null context, including an empty one, intentionally suppresses global world shader
+            // assignments for this view. Scope restoration is unconditional so the primary camera resumes
+            // using the ordinary global matcher even when the native secondary render fails.
+            struct CScopedSceneViewShaderContext
+            {
+                CScopedSceneViewShaderContext(CRenderItemManagerInterface* pManager, const std::vector<SSceneViewShaderAssignment>& assignments)
+                    : m_pManager(pManager)
+                {
+                    m_pManager->SetSceneViewShaderContext(&assignments);
+                }
+                ~CScopedSceneViewShaderContext() { m_pManager->SetSceneViewShaderContext(nullptr); }
+                CRenderItemManagerInterface* m_pManager;
+            } shaderContext(m_pRenderItemManager, pSceneView->GetShaderAssignments());
+
             bRendered = g_pMultiplayer->RenderSecondaryScene();
             m_pRenderItemManager->EndRenderPass();
         }

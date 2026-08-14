@@ -52,6 +52,8 @@ void CLuaDrawingDefs::LoadFunctions()
         {"dxSetSceneViewCamera", DxSetSceneViewCamera},
         {"dxRequestSceneViewRender", DxRequestSceneViewRender},
         {"dxSetSceneViewUpdateMode", DxSetSceneViewUpdateMode},
+        {"dxApplyShaderToSceneViewWorldTexture", DxApplyShaderToSceneViewWorldTexture},
+        {"dxRemoveShaderFromSceneViewWorldTexture", DxRemoveShaderFromSceneViewWorldTexture},
         {"dxGetSceneViewTexture", DxGetSceneViewTexture},
         {"dxGetSceneViewInfo", DxGetSceneViewInfo},
         {"dxCreateScreenSource", DxCreateScreenSource},
@@ -141,6 +143,8 @@ void CLuaDrawingDefs::AddDxShaderClass(lua_State* luaVM)
     lua_classfunction(luaVM, "create", "dxCreateShader");
     lua_classfunction(luaVM, "applyToWorldTexture", "engineApplyShaderToWorldTexture");
     lua_classfunction(luaVM, "removeFromWorldTexture", "engineRemoveShaderFromWorldTexture");
+    lua_classfunction(luaVM, "applyToSceneViewWorldTexture", "dxApplyShaderToSceneViewWorldTexture");
+    lua_classfunction(luaVM, "removeFromSceneViewWorldTexture", "dxRemoveShaderFromSceneViewWorldTexture");
 
     lua_classfunction(luaVM, "setValue", "dxSetShaderValue");
     lua_classfunction(luaVM, "setTessellation", "dxSetShaderTessellation");
@@ -1719,6 +1723,71 @@ int CLuaDrawingDefs::DxSetSceneViewUpdateMode(lua_State* luaVM)
     {
         pSceneView->SetUpdateMode(mode, uiValue);
         lua_pushboolean(luaVM, true);
+        return 1;
+    }
+
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxApplyShaderToSceneViewWorldTexture(lua_State* luaVM)
+{
+    CClientShader*    pShader = nullptr;
+    CClientSceneView* pSceneView = nullptr;
+    SString           strTextureNameMatch;
+    CScriptArgReader  argStream(luaVM);
+    argStream.ReadUserData(pShader);
+    argStream.ReadUserData(pSceneView);
+    argStream.ReadString(strTextureNameMatch);
+
+    if (!argStream.HasErrors() && strTextureNameMatch.empty())
+        argStream.SetCustomError("texture name match cannot be empty", "Bad argument");
+
+    if (!argStream.HasErrors())
+    {
+        CLuaMain*      pLuaMain = m_pLuaManager->GetVirtualMachine(luaVM);
+        CResource*     pResource = pLuaMain ? pLuaMain->GetResource() : nullptr;
+        CClientEntity* pResourceRoot = pResource ? pResource->GetResourceDynamicEntity() : nullptr;
+        if (!pResourceRoot || !pResourceRoot->IsMyChild(pShader, true) || !pResourceRoot->IsMyChild(pSceneView, true))
+        {
+            m_pScriptDebugging->LogCustom(luaVM, "dxApplyShaderToSceneViewWorldTexture: shader and scene view must belong to this resource");
+            lua_pushboolean(luaVM, false);
+            return 1;
+        }
+
+        lua_pushboolean(luaVM, pSceneView->AddShaderAssignment(pShader->GetShaderItem(), strTextureNameMatch));
+        return 1;
+    }
+
+    m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxRemoveShaderFromSceneViewWorldTexture(lua_State* luaVM)
+{
+    CClientShader*    pShader = nullptr;
+    CClientSceneView* pSceneView = nullptr;
+    SString           strTextureNameMatch;
+    CScriptArgReader  argStream(luaVM);
+    argStream.ReadUserData(pShader);
+    argStream.ReadUserData(pSceneView);
+    argStream.ReadString(strTextureNameMatch);
+
+    if (!argStream.HasErrors())
+    {
+        CLuaMain*      pLuaMain = m_pLuaManager->GetVirtualMachine(luaVM);
+        CResource*     pResource = pLuaMain ? pLuaMain->GetResource() : nullptr;
+        CClientEntity* pResourceRoot = pResource ? pResource->GetResourceDynamicEntity() : nullptr;
+        if (!pResourceRoot || !pResourceRoot->IsMyChild(pShader, true) || !pResourceRoot->IsMyChild(pSceneView, true))
+        {
+            m_pScriptDebugging->LogCustom(luaVM, "dxRemoveShaderFromSceneViewWorldTexture: shader and scene view must belong to this resource");
+            lua_pushboolean(luaVM, false);
+            return 1;
+        }
+
+        lua_pushboolean(luaVM, pSceneView->RemoveShaderAssignment(pShader->GetShaderItem(), strTextureNameMatch));
         return 1;
     }
 

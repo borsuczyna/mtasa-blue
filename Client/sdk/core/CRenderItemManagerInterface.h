@@ -40,6 +40,12 @@ class CPixels;
 class CClientEntityBase;
 class CMatrix;
 struct SShaderItemLayers;
+
+struct SSceneViewShaderAssignment
+{
+    CShaderItem* pShaderItem = nullptr;
+    SString      strTextureNameMatch;
+};
 typedef CShaderItem CSHADERDUMMY;
 enum eAspectRatio;
 class CWebViewInterface;
@@ -286,6 +292,7 @@ public:
     virtual void                UpdateBackBufferCopy() = 0;
     virtual void                UpdateScreenSource(CScreenSourceItem* pScreenSourceItem, bool bResampleNow) = 0;
     virtual SShaderItemLayers*  GetAppliedShaderForD3DData(CD3DDUMMY* pD3DData) = 0;
+    virtual void                SetSceneViewShaderContext(const std::vector<SSceneViewShaderAssignment>* pAssignments) = 0;
     virtual bool                ApplyShaderItemToWorldTexture(CShaderItem* pShaderItem, const SString& strTextureNameMatch, CClientEntityBase* pClientEntity,
                                                               bool bAppendLayers) = 0;
     virtual bool           RemoveShaderItemFromWorldTexture(CShaderItem* pShaderItem, const SString& strTextureNameMatch, CClientEntityBase* pClientEntity) = 0;

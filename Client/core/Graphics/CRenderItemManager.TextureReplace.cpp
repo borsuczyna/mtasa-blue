@@ -82,7 +82,51 @@ SShaderItemLayers* CRenderItemManager::GetAppliedShaderForD3DData(CD3DDUMMY* pD3
     // Save texture usage for later
     MapInsert(m_FrameTextureUsage, pD3DData);
 
-    return m_pRenderWare->GetAppliedShaderForD3DData(pD3DData);
+    if (!m_pSceneViewShaderContext)
+        return m_pRenderWare->GetAppliedShaderForD3DData(pD3DData);
+
+    // A SceneView context is an isolated replacement namespace: global world-texture assignments are not
+    // consulted at all. This avoids mutating or cloning the global match-channel graph around a native GTA
+    // render and guarantees that another view or the primary camera cannot observe these assignments.
+    *m_pSceneViewShaderLayers = SShaderItemLayers();
+    const char* szTextureName = m_pRenderWare->GetTextureName(pD3DData);
+    const int   iEntityType = m_pRenderWare->GetRenderingEntityType();
+
+    std::vector<CShaderItem*> matchedLayers;
+    CShaderItem*              pBestBase = nullptr;
+    for (const SSceneViewShaderAssignment& assignment : *m_pSceneViewShaderContext)
+    {
+        CShaderItem* pShader = assignment.pShaderItem;
+        if (!pShader || !(pShader->m_iTypeMask & iEntityType) || !WildcardMatchI(assignment.strTextureNameMatch, szTextureName))
+            continue;
+
+        if (pShader->m_bLayered)
+            matchedLayers.push_back(pShader);
+        else if (!pBestBase || pShader->m_fPriority > pBestBase->m_fPriority ||
+                 (pShader->m_fPriority == pBestBase->m_fPriority && pShader->m_uiCreateTime > pBestBase->m_uiCreateTime))
+            pBestBase = pShader;
+    }
+
+    std::sort(
+        matchedLayers.begin(), matchedLayers.end(), [](const CShaderItem* pLeft, const CShaderItem* pRight)
+        { return pLeft->m_fPriority < pRight->m_fPriority || (pLeft->m_fPriority == pRight->m_fPriority && pLeft->m_uiCreateTime < pRight->m_uiCreateTime); });
+
+    m_pSceneViewShaderLayers->pBase = pBestBase;
+    m_pSceneViewShaderLayers->layerList = std::move(matchedLayers);
+    m_pSceneViewShaderLayers->bUsesVertexShader = pBestBase && pBestBase->GetUsesVertexShader();
+    for (CShaderItem* pLayer : m_pSceneViewShaderLayers->layerList)
+        m_pSceneViewShaderLayers->bUsesVertexShader |= pLayer->GetUsesVertexShader();
+
+    if (!m_pSceneViewShaderLayers->pBase && m_pSceneViewShaderLayers->layerList.empty())
+        return nullptr;
+
+    m_pRenderWare->OnShaderReplacementResolved(m_pSceneViewShaderLayers->bUsesVertexShader);
+    return m_pSceneViewShaderLayers;
+}
+
+void CRenderItemManager::SetSceneViewShaderContext(const std::vector<SSceneViewShaderAssignment>* pAssignments)
+{
+    m_pSceneViewShaderContext = pAssignments;
 }
 
 ////////////////////////////////////////////////////////////////
