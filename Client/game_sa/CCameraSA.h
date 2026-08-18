@@ -390,6 +390,8 @@ public:
     void         RestoreWithJumpCut() override;
     CMatrix*     GetMatrix(CMatrix* matrix) override;
     void         SetMatrix(CMatrix* matrix) override;
+    void         CopyCameraMatrixToRWCam(bool bUpdateMatrix) override;
+    void         CalculateDerivedValues(bool bForMirror, bool bOriented) override;
     void         Find3rdPersonCamTargetVector(float fDistance, CVector* vecGunMuzzle, CVector* vecSource, CVector* vecTarget) override;
     float        Find3rdPersonQuickAimPitch() override;
     BYTE         GetActiveCam() override;
@@ -419,6 +421,9 @@ public:
     float        GetTransitionFOV() const override;
     bool         GetTransitionMatrix(CMatrix& matrix) const override;
     bool         IsSphereVisible(CVector* center, float radius) const override;
+    size_t       GetStateSnapshotSize() const override;
+    bool         GetStateSnapshot(void* pBuffer, size_t uiSize) const override;
+    bool         SetStateSnapshot(const void* pBuffer, size_t uiSize) override;
 
     // Additional overload not in base interface
     virtual CCam* GetCam(CCamSAInterface* camInterface);

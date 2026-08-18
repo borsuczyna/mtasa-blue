@@ -12,6 +12,7 @@
 #pragma once
 
 #include "CEntity.h"
+#include <cstddef>
 
 class CMatrix;
 class CCam;
@@ -125,6 +126,8 @@ public:
     virtual void      RestoreWithJumpCut() = 0;
     virtual CMatrix*  GetMatrix(CMatrix* matrix) = 0;
     virtual void      SetMatrix(CMatrix* matrix) = 0;
+    virtual void      CopyCameraMatrixToRWCam(bool bUpdateMatrix) = 0;
+    virtual void      CalculateDerivedValues(bool bForMirror, bool bOriented) = 0;
     virtual void      Find3rdPersonCamTargetVector(float fDistance, CVector* vecGunMuzzle, CVector* vecSource, CVector* vecTarget) = 0;
     virtual float     Find3rdPersonQuickAimPitch() = 0;
     virtual BYTE      GetActiveCam() = 0;
@@ -157,4 +160,11 @@ public:
     virtual bool         GetTransitionMatrix(CMatrix& matrix) const = 0;
 
     virtual bool IsSphereVisible(CVector* center, float radius) const = 0;
+
+    // Scoped native world rendering needs to preserve camera-derived state that is not represented by the
+    // public matrix/FOV API (frustum, LOD and active CCam caches). The buffer is opaque to callers and only
+    // valid for immediate capture/restore against the same camera implementation.
+    virtual size_t GetStateSnapshotSize() const = 0;
+    virtual bool   GetStateSnapshot(void* pBuffer, size_t uiSize) const = 0;
+    virtual bool   SetStateSnapshot(const void* pBuffer, size_t uiSize) = 0;
 };

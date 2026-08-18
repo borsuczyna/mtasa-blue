@@ -102,8 +102,11 @@ public:
     virtual void             PulseWorldTextureWatch() = 0;
     virtual void             GetModelTextureNames(std::vector<SString>& outNameList, ushort usModelID) = 0;
     virtual bool GetModelTextures(std::vector<std::tuple<std::string, CPixels>>& outTextureList, ushort usModelID, std::vector<SString> vTextureNames) = 0;
-    virtual const char* GetTextureName(CD3DDUMMY* pD3DData) = 0;
-    virtual ushort      GetTXDIDForModelID(ushort usModelID) = 0;
+    virtual const char*        GetTextureName(CD3DDUMMY* pD3DData) = 0;
+    virtual int                GetRenderingEntityType() const = 0;
+    virtual CClientEntityBase* GetRenderingClientEntity() const = 0;
+    virtual void               OnShaderReplacementResolved(bool bUsesVertexShader) = 0;
+    virtual ushort             GetTXDIDForModelID(ushort usModelID) = 0;
 
     virtual void               SetRenderingClientEntity(CClientEntityBase* pClientEntity, ushort usModelId, int iTypeMask) = 0;
     virtual SShaderItemLayers* GetAppliedShaderForD3DData(CD3DDUMMY* pD3DData) = 0;
@@ -124,4 +127,8 @@ public:
     virtual void RwMatrixSetPosition(RwMatrix& rwInOutMatrix, const CVector& vecPosition) = 0;
     virtual void RwMatrixGetScale(const RwMatrix& rwMatrix, CVector& vecOutScale) = 0;
     virtual void RwMatrixSetScale(RwMatrix& rwInOutMatrix, const CVector& vecScale) = 0;
+
+    // Native world rendering keeps a second transform cache inside RenderWare's D3D9 backend. Scoped world
+    // passes must restore through this entry point so the backend and the actual D3D device cannot disagree.
+    virtual bool SetD3D9Transform(uint uiState, const void* pMatrix) = 0;
 };

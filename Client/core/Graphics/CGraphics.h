@@ -128,6 +128,7 @@ public:
     void DrawTexture(CTextureItem* texture, float fX, float fY, float fScaleX = 1.0f, float fScaleY = 1.0f, float fRotation = 0.0f, float fCenterX = 0.0f,
                      float fCenterY = 0.0f, DWORD dwColor = 0xFFFFFFFF, float fU = 0, float fV = 0, float fSizeU = 1, float fSizeV = 1,
                      bool bRelativeUV = true);
+    void DrawMaterialImmediate(CMaterialItem* pMaterial, float fWidth, float fHeight);
 
     // Interface functions
     void SetCursorPosition(int iX, int iY, DWORD Flags);
