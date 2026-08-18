@@ -220,10 +220,10 @@ private:
     void       OnZBufferModified();
     ID3DXFont* MaybeGetBigFont(ID3DXFont* pDXFont, float& fScaleX, float& fScaleY);
     void       CheckModes(EDrawModeType newDrawMode, EBlendModeType newBlendMode = EBlendMode::NONE);
-    void DrawColorCodedTextLine(float fLeft, float fRight, float fY, SColor& currentColor, const wchar_t* wszText, float fScaleX, float fScaleY,
-                                unsigned long ulFormat, ID3DXFont* pDXFont, bool bPostGUI, bool bSubPixelPositioning, float fRotation, float fRotationCenterX,
-                                float fRotationCenterY);
-    int  GetTrailingSpacesWidth(ID3DXFont* pDXFont, WString& strText);
+    void       DrawColorCodedTextLine(float fLeft, float fRight, float fY, SColor& currentColor, const wchar_t* wszText, float fScaleX, float fScaleY,
+                                      unsigned long ulFormat, ID3DXFont* pDXFont, bool bPostGUI, bool bSubPixelPositioning, float fRotation, float fRotationCenterX,
+                                      float fRotationCenterY);
+    int        GetTrailingSpacesWidth(ID3DXFont* pDXFont, WString& strText);
 
     CLocalGUI* m_pGUI;
 

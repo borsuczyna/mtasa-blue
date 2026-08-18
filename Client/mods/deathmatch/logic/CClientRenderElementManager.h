@@ -39,7 +39,7 @@ public:
     CClientRenderTarget*       CreateRenderTarget(uint uiSizeX, uint uiSizeY, bool bHasSurfaceFormat, bool bWithAlphaChannel, _D3DFORMAT surfaceFormat);
     CClientDepthStencilTarget* CreateDepthStencilTarget(uint uiSizeX, uint uiSizeY, _D3DFORMAT surfaceFormat, bool bSampleable);
     CClientMrtSet* CreateMrtSet(CClientRenderTarget* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets, CClientDepthStencilTarget* pDepthStencilTarget);
-    CClientSceneView*           CreateSceneView(uint uiSizeX, uint uiSizeY, _D3DFORMAT colorFormat, _D3DFORMAT depthFormat);
+    CClientSceneView*           CreateSceneView(uint uiSizeX, uint uiSizeY, _D3DFORMAT colorFormat, _D3DFORMAT depthFormat, bool bSampleableDepth = false);
     bool                        SetSceneViewOutputShader(CClientSceneView* pSceneView, CShaderItem* pShaderItem, const SString& strInputName);
     bool                        RenderRequestedSceneView();
     CClientCubemapRenderTarget* CreateCubemapRenderTarget(uint uiEdgeSize, _D3DFORMAT surfaceFormat);

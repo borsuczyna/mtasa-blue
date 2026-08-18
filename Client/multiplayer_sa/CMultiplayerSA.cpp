@@ -2214,6 +2214,14 @@ float CMultiplayerSA::GetSunSize()
     return *(float*)0xB7C4DC / 10;
 }
 
+// CTimeCycle::m_vecDirnLightToSun - a unit vector pointing FROM the world TOWARD the sun (matches the sign
+// convention SetLightsWithTimeOfDayColour itself uses: it sets the directional light's own frame "at" axis
+// to the negation of this vector, since a light travels the opposite way from where it points).
+void CMultiplayerSA::GetSunDirection(CVector& vecDirection)
+{
+    vecDirection = *(CVector*)0xB7CB14;
+}
+
 void CMultiplayerSA::SetSunSize(float fSize)
 {
     MemPut<BYTE>(0x55FA9D, 0xDD);
@@ -3197,8 +3205,13 @@ bool CMultiplayerSA::RenderSecondaryScene()
         // The secondary pass drew into our RW-owned raster, not into the scene view's own D3D9 texture - copy
         // the result across. Keeping these as two separate resources (rather than making the scene view's
         // CRenderTargetItem adopt RenderWare's texture) avoids two systems independently owning and releasing
-        // the same D3D9 texture; the depth buffer is intentionally not copied back since it is never exposed
-        // to scripts. RwRasterCreate picks the raster's pixel format to match the display, which will not
+        // the same D3D9 texture; the depth buffer is intentionally not copied back. A sampleable SceneView
+        // depth target was attempted (StretchRect from this raster's own D24S8 Z surface into an INTZ/DF24/
+        // DF16/RAWZ destination) but D3D9 requires matching formats for depth-stencil StretchRect copies
+        // (unlike color, which allows conversion) - confirmed via D3DERR_INVALIDCALL in-game, not just in
+        // theory - so dxCreateSceneView now rejects sampleableDepth outright instead of silently creating an
+        // item that can never receive real depth data; see dxCreateSceneView's own comment for the fallback.
+        // RwRasterCreate picks the raster's pixel format to match the display, which will not
         // always equal a script-requested dxCreateSceneView colorFormat; StretchRect between mismatched
         // formats is driver-dependent, so a failure here is reported rather than assumed to have succeeded.
         // RenderScene and RenderEffects bind their own textures after the outer render-target scope cleared

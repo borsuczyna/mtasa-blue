@@ -69,6 +69,7 @@ void CLuaDrawingDefs::LoadFunctions()
         {"dxCreateScreenSource", DxCreateScreenSource},
         {"dxGetMaterialSize", DxGetMaterialSize},
         {"dxSetShaderValue", DxSetShaderValue},
+        {"dxSetShaderDepthTextureValue", DxSetShaderDepthTextureValue},
         {"dxSetShaderTessellation", DxSetShaderTessellation},
         {"dxSetShaderTransform", DxSetShaderTransform},
         {"dxSetRenderTarget", DxSetRenderTarget},
@@ -158,6 +159,7 @@ void CLuaDrawingDefs::AddDxShaderClass(lua_State* luaVM)
     lua_classfunction(luaVM, "removeFromSceneViewWorldTexture", "engineRemoveShaderFromSceneViewWorldTexture");
 
     lua_classfunction(luaVM, "setValue", "dxSetShaderValue");
+    lua_classfunction(luaVM, "setDepthTextureValue", "dxSetShaderDepthTextureValue");
     lua_classfunction(luaVM, "setTessellation", "dxSetShaderTessellation");
     lua_classfunction(luaVM, "setTransform", "dxSetShaderTransform");
     lua_classfunction(luaVM, "getDiagnostics", "dxGetShaderDiagnostics");
@@ -1620,26 +1622,44 @@ int CLuaDrawingDefs::DxCreateMrtSet(lua_State* luaVM)
 
 int CLuaDrawingDefs::DxCreateSceneView(lua_State* luaVM)
 {
+    //  sceneView dxCreateSceneView ( int sizeX, int sizeY [, string colorFormat = "a8r8g8b8", string depthFormat = "d24s8", bool sampleableDepth = false ] )
     CVector2D  size;
     _D3DFORMAT colorFormat = (_D3DFORMAT)D3DFMT_A8R8G8B8;
     SString    depthFormatName = "d24s8";
+    bool       bSampleableDepth = false;
 
     CScriptArgReader argStream(luaVM);
     argStream.ReadVector2D(size);
     argStream.ReadEnumString(colorFormat, (_D3DFORMAT)D3DFMT_A8R8G8B8);
     argStream.ReadString(depthFormatName, "d24s8");
+    argStream.ReadBool(bSampleableDepth, false);
 
     D3DFORMAT depthFormat = D3DFMT_D24S8;
     if (!argStream.HasErrors() && !StringToDepthStencilFormat(depthFormatName, depthFormat))
         argStream.SetCustomError(SString("Expected valid depth-stencil format, got '%s'", depthFormatName.c_str()), "Bad argument");
 
+    // A SceneView's off-screen world render goes through RenderWare's own private camera Z-buffer raster
+    // (RwCameraBeginUpdate rebinds the device's depth-stencil surface to that raster's own plain D3DFMT_D24S8
+    // surface unconditionally - confirmed in-game, not just in theory), and D3D9's StretchRect requires
+    // matching formats for depth-stencil surfaces (unlike color, which allows format conversion), so there is
+    // no way to bridge that surface into a sampleable INTZ/DF24/DF16/RAWZ target the way the color output is
+    // bridged. This is an architectural fact about how off-screen SceneViews render, not a hardware
+    // capability gap, so it is rejected explicitly here rather than silently creating an item whose depth
+    // content would never be populated. Standalone dxCreateDepthStencilTarget's sampleable path is unaffected
+    // - it is used with dxBeginRenderPass/dxCreateMrtSet, which bind the D3D9 device directly and never go
+    // through RenderWare's world-render camera at all. Use engineApplyShaderToSceneViewWorldTexture with a
+    // depth-encoding shader (see shaders/depth_encode.fx in sceneview_world_shader_test) instead.
+    if (!argStream.HasErrors() && bSampleableDepth)
+        argStream.SetCustomError("sampleableDepth is not supported for SceneViews - see dxCreateSceneView documentation", "Not supported");
+
     if (!argStream.HasErrors())
     {
         CLuaMain*         pLuaMain = m_pLuaManager->GetVirtualMachine(luaVM);
         CResource*        pResource = pLuaMain ? pLuaMain->GetResource() : nullptr;
-        CClientSceneView* pSceneView = pResource ? g_pClientGame->GetManager()->GetRenderElementManager()->CreateSceneView(
-                                                       static_cast<uint>(size.fX), static_cast<uint>(size.fY), colorFormat, (_D3DFORMAT)depthFormat)
-                                                 : nullptr;
+        CClientSceneView* pSceneView = pResource
+                                           ? g_pClientGame->GetManager()->GetRenderElementManager()->CreateSceneView(
+                                                 static_cast<uint>(size.fX), static_cast<uint>(size.fY), colorFormat, (_D3DFORMAT)depthFormat, bSampleableDepth)
+                                           : nullptr;
         if (pSceneView)
         {
             pSceneView->SetParent(pResource->GetResourceDynamicEntity());
@@ -2410,6 +2430,44 @@ int CLuaDrawingDefs::DxSetShaderValue(lua_State* luaVM)
             return 1;
         }
         argStream.SetCustomError("Expected number, bool, table or texture at argument 3");
+    }
+    if (argStream.HasErrors())
+        m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());
+
+    // error: bad arguments
+    lua_pushboolean(luaVM, false);
+    return 1;
+}
+
+int CLuaDrawingDefs::DxSetShaderDepthTextureValue(lua_State* luaVM)
+{
+    //  bool dxSetShaderDepthTextureValue( element shader, string name, sceneView theSceneView )
+    // A scene view's depth-stencil target is owned directly by the CClientSceneView (never wrapped in
+    // its own CClientDepthStencilTarget element), so it cannot go through dxSetShaderValue's generic
+    // texture branch - passing a sceneView there already has an established, documented meaning (bind
+    // its COLOR output, same element dxGetSceneViewTexture returns). This is a separate function so that
+    // existing behavior is untouched.
+    CClientShader*    pShader;
+    SString           strName;
+    CClientSceneView* pSceneView;
+
+    CScriptArgReader argStream(luaVM);
+    argStream.ReadUserData(pShader);
+    argStream.ReadString(strName);
+    argStream.ReadUserData(pSceneView);
+
+    if (!argStream.HasErrors())
+    {
+        CDepthStencilTargetItem* pDepthItem = pSceneView->GetDepthStencilTargetItem();
+        if (pDepthItem && pDepthItem->m_pD3DTexture)
+        {
+            bool bResult = pShader->GetShaderItem()->SetValue(strName, pDepthItem);
+            lua_pushboolean(luaVM, bResult);
+            return 1;
+        }
+        m_pScriptDebugging->LogCustom(luaVM, "dxSetShaderDepthTextureValue: scene view has no sampleable depth target (create it with sampleableDepth = true)");
+        lua_pushboolean(luaVM, false);
+        return 1;
     }
     if (argStream.HasErrors())
         m_pScriptDebugging->LogCustom(luaVM, argStream.GetFullErrorMessage());

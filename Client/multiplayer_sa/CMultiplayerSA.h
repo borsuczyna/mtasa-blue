@@ -204,6 +204,7 @@ public:
     float GetSunSize();
     void  SetSunSize(float fSize);
     void  ResetSunSize();
+    void  GetSunDirection(CVector& vecDirection);
     void  SetMoonSize(int iSize);
     int   GetMoonSize();
     void  ResetMoonSize();

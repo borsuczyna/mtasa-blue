@@ -257,7 +257,8 @@ CClientMrtSet* CClientRenderElementManager::CreateMrtSet(CClientRenderTarget* co
     return pMrtSetElement;
 }
 
-CClientSceneView* CClientRenderElementManager::CreateSceneView(uint uiSizeX, uint uiSizeY, _D3DFORMAT colorFormat, _D3DFORMAT depthFormat)
+CClientSceneView* CClientRenderElementManager::CreateSceneView(uint uiSizeX, uint uiSizeY, _D3DFORMAT colorFormat, _D3DFORMAT depthFormat,
+                                                               bool bSampleableDepth)
 {
     // No fixed count cap - creation is still bounded by CanCreateRenderItem's existing memory accounting
     // (via CreateRenderTarget/CreateDepthStencilTarget below), and per-frame render cost is bounded only by
@@ -266,7 +267,10 @@ CClientSceneView* CClientRenderElementManager::CreateSceneView(uint uiSizeX, uin
     if (!pRenderTargetItem)
         return nullptr;
 
-    CDepthStencilTargetItem* pDepthStencilTargetItem = m_pRenderItemManager->CreateDepthStencilTarget(uiSizeX, uiSizeY, depthFormat, false);
+    // bSampleableDepth is what makes a SceneView usable as a shadow-map camera: the depth buffer a shadow
+    // pass writes is also what a later pass needs to sample when comparing depths. Ordinary SceneViews
+    // leave this false, unchanged from before this parameter existed.
+    CDepthStencilTargetItem* pDepthStencilTargetItem = m_pRenderItemManager->CreateDepthStencilTarget(uiSizeX, uiSizeY, depthFormat, bSampleableDepth);
     if (!pDepthStencilTargetItem)
     {
         SAFE_RELEASE(pRenderTargetItem);

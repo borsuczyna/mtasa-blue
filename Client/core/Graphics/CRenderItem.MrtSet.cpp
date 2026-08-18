@@ -85,5 +85,9 @@ bool CMrtSetItem::IsValid()
 // call directly from CRenderItemManager's created-item list.
 //
 ////////////////////////////////////////////////////////////////
-void CMrtSetItem::OnLostDevice() {}
-void CMrtSetItem::OnResetDevice() {}
+void CMrtSetItem::OnLostDevice()
+{
+}
+void CMrtSetItem::OnResetDevice()
+{
+}

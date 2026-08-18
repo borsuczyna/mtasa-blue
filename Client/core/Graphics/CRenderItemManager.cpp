@@ -297,49 +297,57 @@ CRenderTargetItem* CRenderItemManager::CreateRenderTarget(uint uiSizeX, uint uiS
 //
 // CRenderItemManager::CreateDepthStencilTarget
 //
-// Only the non-sampleable path is implemented so far - see the class comment
-// on CDepthStencilTargetItem for why bSampleable is rejected outright rather
-// than silently downgraded.
-//
 ////////////////////////////////////////////////////////////////
 CDepthStencilTargetItem* CRenderItemManager::CreateDepthStencilTarget(uint uiSizeX, uint uiSizeY, int surfaceFormat, bool bSampleable)
 {
-    if (bSampleable)
-    {
-        WriteDebugEvent("CreateDepthStencilTarget - sampleable depth targets are not implemented yet");
-        return nullptr;
-    }
-
     if (!CanCreateRenderItem(CDepthStencilTargetItem::GetClassId()))
         return nullptr;
 
-    // Reject a format the device can't actually use as a depth-stencil surface, rather than
-    // letting CreateDepthStencilSurface fail with no explanation.
-    if (m_pDevice)
+    if (bSampleable)
     {
-        IDirect3D9* pD3D = nullptr;
-        m_pDevice->GetDirect3D(&pD3D);
-        if (pD3D)
+        // Only one vendor FourCC format is ever discovered/valid per GPU (see
+        // CDirect3DEvents9::DiscoverReadableDepthFormat, run once at device creation for MTA's own
+        // primary-scene readable depth buffer) - the caller-supplied surfaceFormat only applies to the
+        // non-sampleable path below, since CheckDeviceFormat itself does not reliably report these
+        // formats as valid for D3DRTYPE_TEXTURE even on hardware where creating one actually works, so
+        // there is nothing more specific to validate against than "was a format discovered at all".
+        if (m_depthBufferFormat == RFORMAT_UNKNOWN)
         {
-            D3DDISPLAYMODE displayMode;
-            if (pD3D->GetAdapterDisplayMode(D3DADAPTER_DEFAULT, &displayMode) == D3D_OK)
+            WriteDebugEvent("CreateDepthStencilTarget - sampleable depth targets are not supported on this GPU");
+            return nullptr;
+        }
+        surfaceFormat = m_depthBufferFormat;
+    }
+    else
+    {
+        // Reject a format the device can't actually use as a depth-stencil surface, rather than
+        // letting CreateDepthStencilSurface fail with no explanation.
+        if (m_pDevice)
+        {
+            IDirect3D9* pD3D = nullptr;
+            m_pDevice->GetDirect3D(&pD3D);
+            if (pD3D)
             {
-                HRESULT hrFormatCheck = pD3D->CheckDeviceFormat(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, displayMode.Format, D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_SURFACE,
-                                                                (D3DFORMAT)surfaceFormat);
-                if (hrFormatCheck != D3D_OK)
+                D3DDISPLAYMODE displayMode;
+                if (pD3D->GetAdapterDisplayMode(D3DADAPTER_DEFAULT, &displayMode) == D3D_OK)
                 {
-                    WriteDebugEvent(SString("CreateDepthStencilTarget - Format %d is not supported as a depth-stencil surface on this GPU (0x%08x)",
-                                            surfaceFormat, hrFormatCheck));
-                    SAFE_RELEASE(pD3D);
-                    return nullptr;
+                    HRESULT hrFormatCheck = pD3D->CheckDeviceFormat(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, displayMode.Format, D3DUSAGE_DEPTHSTENCIL,
+                                                                    D3DRTYPE_SURFACE, (D3DFORMAT)surfaceFormat);
+                    if (hrFormatCheck != D3D_OK)
+                    {
+                        WriteDebugEvent(SString("CreateDepthStencilTarget - Format %d is not supported as a depth-stencil surface on this GPU (0x%08x)",
+                                                surfaceFormat, hrFormatCheck));
+                        SAFE_RELEASE(pD3D);
+                        return nullptr;
+                    }
                 }
             }
+            SAFE_RELEASE(pD3D);
         }
-        SAFE_RELEASE(pD3D);
     }
 
     CDepthStencilTargetItem* pDepthStencilTargetItem = new CDepthStencilTargetItem();
-    pDepthStencilTargetItem->PostConstruct(this, uiSizeX, uiSizeY, surfaceFormat, true);
+    pDepthStencilTargetItem->PostConstruct(this, uiSizeX, uiSizeY, surfaceFormat, bSampleable, true);
 
     if (!pDepthStencilTargetItem->IsValid())
     {

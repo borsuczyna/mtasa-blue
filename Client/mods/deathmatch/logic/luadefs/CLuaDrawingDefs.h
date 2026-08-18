@@ -82,6 +82,7 @@ public:
     LUA_DECLARE(DxCreateScreenSource);
     LUA_DECLARE(DxGetMaterialSize);
     LUA_DECLARE(DxSetShaderValue);
+    LUA_DECLARE(DxSetShaderDepthTextureValue);
     LUA_DECLARE(DxSetShaderTessellation);
     LUA_DECLARE(DxSetShaderTransform);
     LUA_DECLARE(DxSetRenderTarget);

@@ -8,18 +8,20 @@
  *
  *****************************************************************************/
 
-// A standalone depth-stencil surface script element. Deliberately extends
-// CClientRenderElement directly rather than CClientTexture/CClientMaterial -
-// unlike a render target, it isn't drawable via dxDrawImage.
-class CClientDepthStencilTarget : public CClientRenderElement
+// A standalone depth-stencil surface script element. Extends CClientTexture so a sampleable instance
+// (dxCreateDepthStencilTarget's bSampleable = true) works with dxSetShaderValue/dxDrawImage exactly like
+// any other texture-wrapping element, for free - see CDepthStencilTargetItem's own class comment for why
+// it now extends CTextureItem. A non-sampleable instance still has no underlying texture (m_pD3DTexture
+// stays null), so passing one to dxSetShaderValue/dxDrawImage fails the same way any texture element with
+// no valid D3D texture would - not a new failure mode this class introduces.
+class CClientDepthStencilTarget : public CClientTexture
 {
-    DECLARE_CLASS(CClientDepthStencilTarget, CClientRenderElement)
+    DECLARE_CLASS(CClientDepthStencilTarget, CClientTexture)
 public:
     CClientDepthStencilTarget(CClientManager* pManager, ElementID ID, CDepthStencilTargetItem* pDepthStencilTargetItem)
-        : ClassInit(this), CClientRenderElement(pManager, ID)
+        : ClassInit(this), CClientTexture(pManager, ID, pDepthStencilTargetItem)
     {
         SetTypeName("dx-depthstenciltarget");
-        m_pRenderItem = pDepthStencilTargetItem;
     }
 
     eClientEntityType GetType() const { return CCLIENTDEPTHSTENCILTARGET; }

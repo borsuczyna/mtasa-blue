@@ -265,17 +265,17 @@ public:
     virtual ~CRenderItemManagerInterface() {}
 
     // CRenderItemManagerInterface
-    virtual void               DoPulse() = 0;
-    virtual CDxFontItem*       CreateDxFont(const SString& strFullFilePath, uint uiSize, bool bBold, DWORD ulQuality = DEFAULT_QUALITY) = 0;
-    virtual CGuiFontItem*      CreateGuiFont(const SString& strFullFilePath, const SString& strFontName, uint uiSize) = 0;
-    virtual CTextureItem*      CreateTexture(const SString& strFullFilePath, const CPixels* pPixels = NULL, bool bMipMaps = true, uint uiSizeX = RDEFAULT,
-                                             uint uiSizeY = RDEFAULT, ERenderFormat format = RFORMAT_UNKNOWN, ETextureAddress textureAddress = TADDRESS_WRAP,
-                                             ETextureType textureType = TTYPE_TEXTURE, uint uiVolumeDepth = 1) = 0;
-    virtual CShaderItem*       CreateShader(const SString& strFile, const SString& strRootPath, bool bIsRawData, SString& strOutStatus, float fPriority,
-                                            float fMaxDistance, bool bLayered, bool bDebug, int iTypeMask, const EffectMacroList& macros) = 0;
-    virtual CRenderTargetItem* CreateRenderTarget(uint uiSizeX, uint uiSizeY, bool bHasSurfaceFormat, bool bWithAlphaChannel, int surfaceFormat,
-                                                  bool bForce = false) = 0;
-    virtual CDepthStencilTargetItem*  CreateDepthStencilTarget(uint uiSizeX, uint uiSizeY, int surfaceFormat, bool bSampleable) = 0;
+    virtual void                     DoPulse() = 0;
+    virtual CDxFontItem*             CreateDxFont(const SString& strFullFilePath, uint uiSize, bool bBold, DWORD ulQuality = DEFAULT_QUALITY) = 0;
+    virtual CGuiFontItem*            CreateGuiFont(const SString& strFullFilePath, const SString& strFontName, uint uiSize) = 0;
+    virtual CTextureItem*            CreateTexture(const SString& strFullFilePath, const CPixels* pPixels = NULL, bool bMipMaps = true, uint uiSizeX = RDEFAULT,
+                                                   uint uiSizeY = RDEFAULT, ERenderFormat format = RFORMAT_UNKNOWN, ETextureAddress textureAddress = TADDRESS_WRAP,
+                                                   ETextureType textureType = TTYPE_TEXTURE, uint uiVolumeDepth = 1) = 0;
+    virtual CShaderItem*             CreateShader(const SString& strFile, const SString& strRootPath, bool bIsRawData, SString& strOutStatus, float fPriority,
+                                                  float fMaxDistance, bool bLayered, bool bDebug, int iTypeMask, const EffectMacroList& macros) = 0;
+    virtual CRenderTargetItem*       CreateRenderTarget(uint uiSizeX, uint uiSizeY, bool bHasSurfaceFormat, bool bWithAlphaChannel, int surfaceFormat,
+                                                        bool bForce = false) = 0;
+    virtual CDepthStencilTargetItem* CreateDepthStencilTarget(uint uiSizeX, uint uiSizeY, int surfaceFormat, bool bSampleable) = 0;
     virtual CCubemapRenderTargetItem* CreateCubemapRenderTarget(uint uiEdgeSize, int surfaceFormat) = 0;
     virtual CMrtSetItem*              CreateMrtSet(CRenderTargetItem* const targets[MAX_MRT_RENDER_TARGETS], uint uiNumTargets,
                                                    CDepthStencilTargetItem* pDepthStencilTargetItem) = 0;
@@ -683,18 +683,24 @@ class CRenderTargetItem : public CTextureItem
 // particular color render target. Used as the depth attachment for render
 // passes / scene views / MRT sets that need their own depth buffer.
 //
-// Only the non-sampleable path (a plain hardware Z surface, eg. D24S8) is
-// implemented so far - sampling a depth target from a shader needs the
-// vendor-specific INTZ/DF24/DF16/RAWZ texture-creation technique, which is
-// deliberately not attempted here yet. Requesting bSampleable is rejected
-// with an explicit error rather than silently returning a non-sampleable
-// surface while claiming it can be sampled.
+// Extends CTextureItem (not CRenderItem directly) purely to reuse the existing texture-value machinery -
+// dxSetShaderValue, CShaderInstance's texture comparison/storage, dxDrawImage - for free once bSampleable
+// is true. For the non-sampleable path m_pD3DTexture (inherited) simply stays null, identical to how this
+// item behaved before sampling existed.
 //
-class CDepthStencilTargetItem : public CRenderItem
+// The sampleable path reuses the exact same vendor FourCC technique (INTZ/DF24/DF16/RAWZ) and format
+// already discovered once at device creation for MTA's own primary-scene readable depth buffer (see
+// CDirect3DEvents9::DiscoverReadableDepthFormat -> CRenderItemManager::SetDepthBufferFormat) - a texture
+// created with D3DUSAGE_DEPTHSTENCIL and one of these formats can be bound as a real depth-stencil target
+// AND sampled in a shader, which a plain CreateDepthStencilSurface() surface never can. Requesting
+// bSampleable when the GPU never resolved a working format is rejected with an explicit error rather than
+// silently returning a non-sampleable surface while claiming it can be sampled.
+//
+class CDepthStencilTargetItem : public CTextureItem
 {
-    DECLARE_CLASS(CDepthStencilTargetItem, CRenderItem)
+    DECLARE_CLASS(CDepthStencilTargetItem, CTextureItem)
     CDepthStencilTargetItem() : ClassInit(this), m_uiLastEnsureAttempt(0), m_uiEnsureDelayMs(0) {}
-    virtual void PostConstruct(CRenderItemManager* pManager, uint uiSizeX, uint uiSizeY, int surfaceFormat, bool bIncludeInMemoryStats);
+    virtual void PostConstruct(CRenderItemManager* pManager, uint uiSizeX, uint uiSizeY, int surfaceFormat, bool bSampleable, bool bIncludeInMemoryStats);
     virtual void PreDestruct();
     virtual bool IsValid();
     virtual void OnLostDevice();
@@ -702,9 +708,12 @@ class CDepthStencilTargetItem : public CRenderItem
     void         CreateUnderlyingData();
     void         ReleaseUnderlyingData();
 
-    uint               m_uiSizeX;
-    uint               m_uiSizeY;
+    // m_uiSizeX/m_uiSizeY are inherited from CMaterialItem, not redeclared here - CShaderItem::SetValue
+    // mirrors a shader's first-declared-texture size through a CTextureItem*, and a same-named member
+    // redeclared in this derived class would shadow the inherited one instead of the one that lookup
+    // through a CTextureItem* actually resolves to, silently leaving the inherited copy at zero.
     int                m_eFormat;
+    bool               m_bSampleable;
     IDirect3DSurface9* m_pD3DDepthStencilSurface;
     uint               m_uiLastEnsureAttempt;
     uint               m_uiEnsureDelayMs;
